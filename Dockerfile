@@ -4,8 +4,8 @@ WORKDIR /app-web-chat-messages
 
 COPY . .
 
-RUN npm install --force
-RUN npm run build:prod
+RUN npm install
+RUN npm run build
 
 FROM nginx
 COPY default.conf /etc/nginx/conf.d/default.conf
