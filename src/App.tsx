@@ -14,7 +14,7 @@ function PrivateRoute({ children }: { children: JSX.Element }) {
 export default function App() {
   return (
     <AuthProvider>
-      <Router basename="/wpp">
+      <Router>
         <Routes>
           <Route path="/login" element={<Login/>} />
           <Route path="/register" element={<Register />} />
