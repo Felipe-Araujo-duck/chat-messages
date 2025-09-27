@@ -1,7 +1,7 @@
 #! /bin/bash
 PATH_PROJECT="/home/joaom/chat-messages"
 cd "$PATH_PROJECT"
-git checkout master
+git checkout main
 git pull
 
 # Obtém o hash do último commit (curto)
