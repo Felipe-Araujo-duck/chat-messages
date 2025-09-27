@@ -9,7 +9,7 @@ COPY . .
 RUN npm run build
 
 FROM nginx:alpine
-COPY default.conf /etc/nginx/conf.d/default.conf
+COPY nginx.conf /etc/nginx/conf.d/default.conf
 COPY --from=build /app-web-chat-messages/dist /usr/share/nginx/html
 
 EXPOSE 80
