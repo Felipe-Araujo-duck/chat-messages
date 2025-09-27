@@ -1,0 +1,20 @@
+apiVersion: apps/v1
+kind: Deployment
+metadata:
+  name: app-web-chat-messages
+spec:
+  replicas: 1
+  selector:
+    matchLabels:
+      app: app-web-chat-messages
+  template:
+    metadata:
+      labels:
+        app: app-web-chat-messages
+    spec:
+      containers:
+      - name: app-web-chat-messages
+        imagePullPolicy: IfNotPresent
+        image: app-web-chat-messages-image:latest
+        ports:
+        - containerPort: 80
