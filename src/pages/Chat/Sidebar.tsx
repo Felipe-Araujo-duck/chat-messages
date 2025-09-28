@@ -8,7 +8,7 @@ interface Conversa {
 
 interface SidebarProps {
   conversas: Conversa[];
-  selectedConversa: Conversa;
+  selectedConversa: Conversa | null;
   onSelectConversa: (c: Conversa) => void;
   isOpen: boolean;
   toggleSidebar: () => void;

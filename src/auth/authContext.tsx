@@ -1,37 +1,46 @@
-import { createContext, useContext, useState, type ReactNode } from "react";
+import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
+import { getProfile, login, logout } from "../services/authService";
 
-interface User {
+type User = {
+  id: number; 
   name: string;
-}
+} | null;
 
-interface AuthContextType {
-  user: User | null;
-  login: (username: string, password: string) => boolean;
+type AuthContextType = {
+  user: User;
+  loginUser: (username: string, password: string) => Promise<void>;
   register: (username: string, password: string) => void;
-  logout: () => void;
+  logoutUser: () => Promise<void>;
 }
 
-const AuthContext = createContext<AuthContextType | undefined>(undefined);
+const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
-  const [user, setUser] = useState<User | null>(null);
+  const [user, setUser] = useState<User>(null);
 
-  const login = (username: string, password: string): boolean => {
-    if (username === "teste" && password === "123") {
-      setUser({ name: "Usuário Teste" });
-      return true;
-    }
-    return false;
-  };
+  useEffect(() => {
+    getProfile()
+      .then(setUser)
+      .catch(() => setUser(null));
+  }, []);
+
+  async function loginUser(username: string, password: string) {
+    //await login(username, password);
+    //const profile = await getProfile();
+    setUser({id: 1, name: 'teste'});
+  }
+
+  async function logoutUser() {
+    await logout();
+    setUser(null);
+  }
 
   const register = (username: string, password: string) => {
-    console.log("Usuário registrado:", username, password);
-  };
-
-  const logout = () => setUser(null);
-
+    console.log("Usuario criado")
+  }
+  
   return (
-    <AuthContext.Provider value={{ user, login, register, logout }}>
+    <AuthContext.Provider value={{ user, loginUser, register, logoutUser }}>
       {children}
     </AuthContext.Provider>
   );

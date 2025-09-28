@@ -1,20 +1,16 @@
-import { BrowserRouter as Router, Routes, Route, Navigate } from "react-router-dom";
-import { AuthProvider, useAuth } from "./auth/authContext.tsx";
-import type { JSX } from "react";
+import { Routes, Route, Navigate, BrowserRouter } from "react-router-dom";
+import { AuthProvider } from "./auth/authContext.tsx";
+
 import Chat from "./pages/Chat/Chat";
 import Login from "./pages/Login/Login";
 import Register from "./pages/Register/Register";
+import PrivateRoute from "./auth/PrivateRoute.tsx";
 
-
-function PrivateRoute({ children }: { children: JSX.Element }) {
-  const { user } = useAuth();
-  return user ? children : <Navigate to="/login" />;
-}
 
 export default function App() {
   return (
     <AuthProvider>
-      <Router>
+      <BrowserRouter>
         <Routes>
           <Route path="/login" element={<Login/>} />
           <Route path="/register" element={<Register />} />
@@ -29,7 +25,7 @@ export default function App() {
           {/* Redireciona rota raiz */}
           <Route path="*" element={<Navigate to="/login" />} />
         </Routes>
-      </Router>
+      </BrowserRouter>
     </AuthProvider>
   );
 }

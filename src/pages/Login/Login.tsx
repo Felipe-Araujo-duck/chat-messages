@@ -1,23 +1,24 @@
 import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/authContext";
-import { useState, type FormEvent } from "react";
+import { useState } from "react";
 import Input from "../../components/Input/Input";
 import Button from "../../components/Button/Button";
 
 export default function Login() {
-    const { login } = useAuth();
+    const { loginUser } = useAuth();
     const navigate = useNavigate();
     const [username, setUsername] = useState("");
     const [password, setPassword] = useState("");
 
-    const handleSubmit = (e: FormEvent) => {
-        e.preventDefault();
-        if(login(username, password)) {
-            navigate("/chat");
-        } else {
-            alert("Credenciais inválidas!");
-        }
-    };
+    async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    try {
+      await loginUser(username, password);
+      navigate("/chat");
+    } catch {
+      alert("Erro ao fazer login");
+    }
+  }
 
     return (
         <div className="flex items-center justify-center h-screen">
