@@ -38,3 +38,8 @@ export async function decryptAES(cipher: ArrayBuffer, iv: ArrayBuffer, salt: Arr
   const decrypted = await crypto.subtle.decrypt({ name: "AES-GCM", iv: new Uint8Array(iv) }, key, cipher);
   return decrypted;
 }
+
+export async function publicKeyToPassword(publicKeyBuffer: ArrayBuffer) {
+  const hash = await crypto.subtle.digest("SHA-256", publicKeyBuffer);
+  return btoa(String.fromCharCode(...new Uint8Array(hash))).slice(0, 32); 
+}

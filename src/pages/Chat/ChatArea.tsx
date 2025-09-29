@@ -1,8 +1,10 @@
 import { useState, useEffect, useRef } from "react";
 import { MdSend } from "react-icons/md";
 import Button from "../../components/Button/Button";
-import { encryptAES, decryptAES } from "../../utils/crypto";
+import { encryptAES, publicKeyToPassword } from "../../utils/crypto";
 import { loadItem, saveItem } from "../../utils/dbIndexedDB";
+import { salvarChavePrivada } from "../../utils/keysIndexedDB";
+import { gerarChaves } from "../../utils/keys";
 
 export interface Conversa {
   id: number;
@@ -12,19 +14,17 @@ export interface Conversa {
 interface Message {
   id: number;
   sender: "user" | "other";
-  text?: string;       // texto descriptografado para exibição
-  encrypted: any;      // dados criptografados
+  text?: string;
+  encrypted: any;
 }
 
 interface ChatAreaProps {
   userName?: string;
   selectedConversa: Conversa | null;
-  privateKey: ArrayBuffer | null;
-  publicKeyOutro: ArrayBuffer | null;
-  expirou: boolean
+  expirou: boolean;
 }
 
-// Função para respostas automáticas simuladas
+// 🔁 Resposta automática fake
 function respostaAutomatica(text: string) {
   const respostas = [
     "Recebi sua mensagem 😉",
@@ -35,28 +35,92 @@ function respostaAutomatica(text: string) {
   return respostas[Math.floor(Math.random() * respostas.length)];
 }
 
-// Simula envio de mensagem (criptografia)
-async function enviarMensagemSimulada(text: string) {
-  const data = new TextEncoder().encode(text);
-  const encrypted = await encryptAES(data.buffer, "simulacao"); // chave fake para simulação
-  return encrypted;
-}
-
-// Simula recebimento de mensagem (descriptografia)
-async function receberMensagemSimulada(encrypted: any) {
-  const decrypted = await decryptAES(encrypted.cipher, encrypted.iv, encrypted.salt, "simulacao");
-  return new TextDecoder().decode(decrypted);
-}
-
-export default function ChatArea({ userName, selectedConversa, expirou, privateKey, publicKeyOutro }: ChatAreaProps) {
+export default function ChatArea({ userName, selectedConversa, expirou }: ChatAreaProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
   const [conviteEnviado, setConviteEnviado] = useState(false);
   const [conviteAceito, setConviteAceito] = useState(false);
   const [loading, setLoading] = useState(false);
+  const [expiracaoChat, setExpiracaoChat] = useState(expirou);
+
+  const [otherPublicKey, setOtherPublicKey] = useState<ArrayBuffer | null>(null);
+  const[myPublicKey, setMyPublicKey] = useState<ArrayBuffer | null>(null);
 
   const lastConversaId = useRef<number | null>(null);
   const conversaId = selectedConversa?.id;
+
+  // 📤 Enviar ou reenviar convite
+  const enviarConvite = async () => {
+    if (!conversaId) return;
+
+    // 1. Gera meu par de chaves
+    const keyPair = await gerarChaves();
+    const privateKeyBuffer = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
+    const publicKeyBuffer = await crypto.subtle.exportKey("spki", keyPair.publicKey);
+
+    const expiresAt = Date.now() + 1000 * 60 * 2; // 2min para teste
+    setExpiracaoChat(false);
+    await salvarChavePrivada(conversaId.toString(), privateKeyBuffer, "tokenFake", expiresAt);
+    await saveItem("chatDB", "keys", `public_my_${conversaId}`, publicKeyBuffer);
+
+    setMyPublicKey(await loadItem("chatDB", "keys", `public_my_${conversaId}`))
+    setConviteEnviado(true);
+    setConviteAceito(false);
+
+    console.log("📤 Convite enviado com minhas chaves");
+
+    // 2. Simula aceite do outro usuário (2s depois)
+    setTimeout(async () => {
+      //Aqui vai ficar a requisição webSocket
+
+      /* Simula o outro usuario aceitando o convite e criando as chaves */
+      const otherPair = await gerarChaves();
+      const otherPrivateKeyBuffer = await crypto.subtle.exportKey("pkcs8", otherPair.privateKey);
+      const otherPublicKeyBuffer = await crypto.subtle.exportKey("spki", otherPair.publicKey); // trocar isso para chave que retornar do webSocket
+
+      const otherExpiresAt = Date.now() + 1000 * 60 * 2;
+      //Isso aqui não vai existir, somente para simular outro usuario
+      await salvarChavePrivada(`other_${conversaId}`, otherPrivateKeyBuffer, "tokenFake", otherExpiresAt);
+      /* -------------------------------------------------------------- */
+
+      await saveItem("chatDB", "keys", `public_other_${conversaId}`, otherPublicKeyBuffer); // salva no DB a chave que retorna no webSocket
+      setOtherPublicKey(otherPublicKeyBuffer);
+
+      setConviteAceito(true);
+      console.log("✅ Convite aceito, chave pública do outro salva");
+    }, 2000);
+  };
+
+  // ✉️ Enviar mensagem
+  const handleSend = async () => {
+    if (!newMessage.trim() || !otherPublicKey || !myPublicKey) return;
+
+    const data = new TextEncoder().encode(newMessage);
+    const password = await publicKeyToPassword(otherPublicKey);
+    const encrypted = await encryptAES(data.buffer, password);
+
+    setMessages(prev => [...prev, {
+      id: Date.now(),
+      sender: "user",
+      text: newMessage,
+      encrypted
+    }]);
+    setNewMessage("");
+
+    // Resposta simulada - isso aqui é como se fosse o usuario envidando a menssagem
+    setTimeout(async () => {
+      const resposta = respostaAutomatica(newMessage);
+      const respostaData = new TextEncoder().encode(resposta);
+      const password = await publicKeyToPassword(myPublicKey);
+      const encryptedResposta = await encryptAES(respostaData.buffer, password);
+      setMessages(prev => [...prev, {
+        id: Date.now() + 1,
+        sender: "other",
+        text: resposta,
+        encrypted: encryptedResposta
+      }]);
+    }, 1000);
+  };
 
   // Efeito para limpar mensagens quando expirar
   useEffect(() => {
@@ -69,104 +133,54 @@ export default function ChatArea({ userName, selectedConversa, expirou, privateK
     }
   }, [expirou, conversaId]);
 
-  // Carrega histórico local ao mudar de conversa - COM VERIFICAÇÕES
+  // 🔄 Carregar histórico
   useEffect(() => {
     if (!conversaId || expirou) {
       setMessages([]);
+      setConviteEnviado(false);
+      setConviteAceito(false);
+      setNewMessage("");
       return;
     }
 
     async function carregarHistorico() {
       setLoading(true);
       try {
-        debugger
-        setMessages([]);
         const historico: Message[] | undefined = await loadItem("chatDB", "messages", `chat_${conversaId}`);
-        
-        if (historico && Array.isArray(historico)) {
-          // Descriptografa todas as mensagens para exibição
-          const descriptografadas = await Promise.all(
-            historico.map(async (msg) => ({
-              ...msg,
-              text: await receberMensagemSimulada(msg.encrypted)
-            }))
-          );
-          setMessages(descriptografadas);
-        } else {
-          setMessages([]); // Garante que está vazio se não há histórico
+        setMessages(historico && Array.isArray(historico) ? historico : []);
+        if(!historico && !Array.isArray(historico)){
+          setConviteEnviado(false);
+          setConviteAceito(false);
+          setNewMessage("");
+          setMyPublicKey(null);
+          setOtherPublicKey(null);
         }
+        
       } catch (error) {
         console.error("Erro ao carregar histórico:", error);
-        setMessages([]); // Limpa em caso de erro
+        setMessages([]);
+        setConviteEnviado(false);
+        setConviteAceito(false);
+        setNewMessage("");
       } finally {
         setLoading(false);
       }
     }
 
-    setNewMessage("");
-    setConviteEnviado(false);
-    setConviteAceito(false);
     carregarHistorico();
   }, [conversaId, expirou]);
 
-  
-
-  // Salva histórico no IndexedDB sempre que mensagens mudam - COM VERIFICAÇÃO
+  // 💾 Salvar histórico
   useEffect(() => {
     if (!conversaId || messages.length === 0 || expirou) return;
 
-    // Verifica se a chave ainda é válida antes de salvar
-    loadItem("chatDB", "keys", `chat_key_${conversaId}`).then(key => {
-      if (!key || key.expiresAt < Date.now()) {
-        console.log("Conversa expirada, não salvar histórico");
-        return;
-      }
+    if (lastConversaId.current !== conversaId) {
+      lastConversaId.current = conversaId;
+      return;
+    }
 
-      if (lastConversaId.current !== conversaId) {
-        lastConversaId.current = conversaId;
-        return;
-      }
-
-      saveItem("chatDB", "messages", `chat_${conversaId}`,
-        messages.map(({ id, sender, encrypted }) => ({ id, sender, encrypted }))
-      );
-    });
+    saveItem("chatDB", "messages", `chat_${conversaId}`, messages);
   }, [messages, conversaId, expirou]);
-
-  const handleSend = async () => {
-    if (!newMessage.trim() || !publicKeyOutro) return;
-
-    // Encripta a mensagem do usuário
-    const encrypted = await enviarMensagemSimulada(newMessage);
-
-    // Adiciona mensagem do usuário ao chat
-    setMessages(prev => [...prev, { 
-      id: Date.now(), // ⬅️ Usa timestamp para IDs únicos
-      sender: "user", 
-      text: newMessage, 
-      encrypted 
-    }]);
-    setNewMessage("");
-
-    // Simula resposta do outro usuário
-    setTimeout(async () => {
-      const resposta = respostaAutomatica(newMessage);
-      const encryptedResposta = await enviarMensagemSimulada(resposta);
-      const received = await receberMensagemSimulada(encryptedResposta);
-      setMessages(prev => [...prev, { 
-        id: Date.now() + 1, // ⬅️ Garante ID único
-        sender: "other", 
-        text: received, 
-        encrypted: encryptedResposta 
-      }]);
-    }, 1000);
-  };
-
-  // Envia convite para iniciar conversa
-  const enviarConvite = () => {
-    setConviteEnviado(true);
-    setTimeout(() => setConviteAceito(true), 2000); // simula aceitação
-  };
 
   // --- Renderização ---
   if (!selectedConversa) {
@@ -178,17 +192,19 @@ export default function ChatArea({ userName, selectedConversa, expirou, privateK
     );
   }
 
-  // Mostrar mensagem de expirado
-  if (expirou) {
+  if (expiracaoChat) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center text-gray-500">
-        <h2 className="text-2xl font-semibold mb-2">🔒 Sessão Expirada</h2>
-        <p className="text-lg">Recarregando a conversa...</p>
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-red-50">
+        <p className="text-red-600 font-semibold">
+          ⏰ O chat para {selectedConversa.nome} expirou
+        </p>
+        <Button className="px-6 py-2 bg-red-600 text-white hover:bg-red-700" onClick={enviarConvite}>
+          Reenviar convite
+        </Button>
       </div>
     );
   }
 
-  // ⬇️ Mostrar loading enquanto carrega histórico
   if (loading) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-gray-500">
@@ -197,7 +213,8 @@ export default function ChatArea({ userName, selectedConversa, expirou, privateK
     );
   }
 
-  if (!conviteEnviado && messages.length === 0) {
+  debugger
+  if (!myPublicKey) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-500">
         <h2 className="text-2xl font-semibold">Iniciar conversa com {selectedConversa.nome}</h2>
@@ -206,7 +223,7 @@ export default function ChatArea({ userName, selectedConversa, expirou, privateK
     );
   }
 
-  if (!conviteAceito && messages.length === 0) {
+  if (!otherPublicKey && myPublicKey) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-500">
         <h2 className="text-2xl font-semibold">⏳ Aguardando {selectedConversa.nome} aceitar o convite...</h2>
