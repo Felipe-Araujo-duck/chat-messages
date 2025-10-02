@@ -38,8 +38,6 @@ function respostaAutomatica(text: string) {
 export default function ChatArea({ userName, selectedConversa, expirou }: ChatAreaProps) {
   const [messages, setMessages] = useState<Message[]>([]);
   const [newMessage, setNewMessage] = useState("");
-  const [conviteEnviado, setConviteEnviado] = useState(false);
-  const [conviteAceito, setConviteAceito] = useState(false);
   const [loading, setLoading] = useState(false);
   const [expiracaoChat, setExpiracaoChat] = useState(expirou);
 
@@ -64,8 +62,6 @@ export default function ChatArea({ userName, selectedConversa, expirou }: ChatAr
     await saveItem("chatDB", "keys", `public_my_${conversaId}`, publicKeyBuffer);
 
     setMyPublicKey(await loadItem("chatDB", "keys", `public_my_${conversaId}`))
-    setConviteEnviado(true);
-    setConviteAceito(false);
 
     console.log("📤 Convite enviado com minhas chaves");
 
@@ -86,7 +82,6 @@ export default function ChatArea({ userName, selectedConversa, expirou }: ChatAr
       await saveItem("chatDB", "keys", `public_other_${conversaId}`, otherPublicKeyBuffer); // salva no DB a chave que retorna no webSocket
       setOtherPublicKey(otherPublicKeyBuffer);
 
-      setConviteAceito(true);
       console.log("✅ Convite aceito, chave pública do outro salva");
     }, 2000);
   };
@@ -127,8 +122,6 @@ export default function ChatArea({ userName, selectedConversa, expirou }: ChatAr
     if (expirou && conversaId) {
       console.log("Token expirado - limpando mensagens");
       setMessages([]);
-      setConviteEnviado(false);
-      setConviteAceito(false);
       setNewMessage("");
     }
   }, [expirou, conversaId]);
@@ -137,8 +130,6 @@ export default function ChatArea({ userName, selectedConversa, expirou }: ChatAr
   useEffect(() => {
     if (!conversaId || expirou) {
       setMessages([]);
-      setConviteEnviado(false);
-      setConviteAceito(false);
       setNewMessage("");
       return;
     }
@@ -147,20 +138,16 @@ export default function ChatArea({ userName, selectedConversa, expirou }: ChatAr
       setLoading(true);
       try {
         const historico: Message[] | undefined = await loadItem("chatDB", "messages", `chat_${conversaId}`);
+        setMyPublicKey(await loadItem("chatDB", "keys", `public_my_${conversaId}`))
+        setOtherPublicKey(await loadItem("chatDB", "keys", `public_other_${conversaId}`))
         setMessages(historico && Array.isArray(historico) ? historico : []);
         if(!historico && !Array.isArray(historico)){
-          setConviteEnviado(false);
-          setConviteAceito(false);
           setNewMessage("");
-          setMyPublicKey(null);
-          setOtherPublicKey(null);
         }
         
       } catch (error) {
         console.error("Erro ao carregar histórico:", error);
         setMessages([]);
-        setConviteEnviado(false);
-        setConviteAceito(false);
         setNewMessage("");
       } finally {
         setLoading(false);
@@ -213,7 +200,6 @@ export default function ChatArea({ userName, selectedConversa, expirou }: ChatAr
     );
   }
 
-  debugger
   if (!myPublicKey) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-500">

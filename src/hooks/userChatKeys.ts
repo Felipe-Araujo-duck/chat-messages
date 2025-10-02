@@ -1,5 +1,5 @@
 import { useEffect, useState } from "react";
-import { gerarParChaves } from "../utils/keys";
+import { gerarChaves } from "../utils/keys";
 import { recuperarChavePrivada, salvarChavePrivada } from "../utils/keysIndexedDB";
 
 export function useChatKeys(conversaId: string, password: string, tokenExpiresAt: number) {
@@ -7,17 +7,39 @@ export function useChatKeys(conversaId: string, password: string, tokenExpiresAt
   const [publicKey, setPublicKey] = useState<ArrayBuffer | null>(null);
 
   useEffect(() => {
+    if (!conversaId) return;
+
     async function init() {
+      // Tenta recuperar chave privada do IndexedDB
       const recovered = await recuperarChavePrivada(conversaId, password);
       if (recovered) {
         setPrivateKey(recovered);
+
+        const exportedPub = await crypto.subtle.exportKey(
+          "spki",
+          await crypto.subtle.deriveKey(
+            { name: "ECDH", public: recovered },
+            recovered,
+            { name: "AES-GCM", length: 256 },
+            true,
+            ["encrypt", "decrypt"]
+          )
+        );
+        setPublicKey(exportedPub);
       } else {
-        const pair = await gerarParChaves();
-        await salvarChavePrivada(conversaId, pair.privateKey, password, tokenExpiresAt);
-        setPrivateKey(await crypto.subtle.importKey("pkcs8", pair.privateKey, { name: "ECDSA", namedCurve: "P-256" }, true, ["sign"]));
-        setPublicKey(pair.publicKey);
+        // 2. Se não existir, gera par novo
+        const pair = await gerarChaves();
+
+        const exportedPrivate = await crypto.subtle.exportKey("pkcs8", pair.privateKey);
+        const exportedPublic = await crypto.subtle.exportKey("spki", pair.publicKey);
+
+        await salvarChavePrivada(conversaId, exportedPrivate, password, tokenExpiresAt);
+
+        setPrivateKey(pair.privateKey);
+        setPublicKey(exportedPublic);
       }
     }
+
     init();
   }, [conversaId, password, tokenExpiresAt]);
 
