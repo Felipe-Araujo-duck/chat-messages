@@ -3,7 +3,6 @@ import type { Conversa } from './useChatMessages';
 
 export interface ConversaState {
   conversa: Conversa;
-  status: 'pending' | 'ready' | 'expired' | 'invited';
   myPublicKey: ArrayBuffer | null;
   otherPublicKey: ArrayBuffer | null;
 }
@@ -14,9 +13,8 @@ export function useConversasState() {
   const initializeConversa = useCallback((conversa: Conversa) => {
     setConversasState(prev => ({
       ...prev,
-      [conversa.id]: {
+      [conversa.chatId]: {
         conversa,
-        status: 'pending',
         myPublicKey: null,
         otherPublicKey: null,
       }

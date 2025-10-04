@@ -1,8 +1,9 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { getProfile, login, logout } from "../services/authService";
 import * as authService from "../services/authService";
+import { startConnection, stopConnection } from "../api/signalR";
 
-type User = {
+export type User = {
   id: number; 
   name: string;
 } | null;
@@ -24,10 +25,10 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   useEffect(() => {
     const checkAuth = async () => {
       try {
-        const res = await getProfile();
+        const res = getProfile();
 
         if (res) {
-          const data = await res;
+          const data = res;
           setUser(data); 
         } else {
           setUser(null);
@@ -43,12 +44,21 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }, []);
 
   async function loginUser(username: string, password: string) {
-    //await login(username, password);
-    //const profile = await getProfile();
-    setUser({id: 1, name: 'teste'});
+    const profile = await login(username, password);    
+
+    if (!profile) {
+      throw new Error("useAuth deve ser usado dentro de AuthProvider");
+    }
+    
+    startConnection(profile.id.toString()).catch(err =>
+      console.error("Erro ao conectar SignalR", err)
+    );
+    
+    setUser(profile);
   }
 
   async function logoutUser() {
+    stopConnection();
     await logout();
     setUser(null);
   }

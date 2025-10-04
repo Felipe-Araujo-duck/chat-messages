@@ -11,10 +11,10 @@ export default function Chat() {
   const navigate = useNavigate();
 
   const [conversas] = useState<Conversa[]>([
-    { id: 1, nome: "João" },
-    { id: 2, nome: "Maria" },
-    { id: 3, nome: "Equipe Suporte" },
-    { id: 4, nome: "Ana" },
+    { chatId: 1, otherUserId: 4, otherUserName: "João", statusChat: null },
+    { chatId: 2, otherUserId: 3, otherUserName: "Maria", statusChat: 'Pending' },
+    { chatId: 3, otherUserId: 2, otherUserName: "Equipe Suporte", statusChat: 'Blocked' },
+    { chatId: 4, otherUserId: 1, otherUserName: "Ana", statusChat: 'Active' },
   ]);
 
   const [selectedConversa, setSelectedConversa] = useState<Conversa | null>(null);
@@ -23,26 +23,26 @@ export default function Chat() {
 
   const handleLogout = () => {
     for (const conversa of conversas) {
-      removeItem("chatDB", "keys", `chat_key_${conversa.id}`);
-      removeItem("chatDB", "keys", `public_my_${conversa.id}`);
-      removeItem("chatDB", "keys", `public_other_${conversa.id}`);
-      removeItem("chatDB", "messages", `chat_${conversa.id}`);
+      removeItem("chatDB", "keys", `chat_key_${conversa.chatId}`);
+      removeItem("chatDB", "keys", `public_my_${conversa.chatId}`);
+      removeItem("chatDB", "keys", `public_other_${conversa.chatId}`);
+      removeItem("chatDB", "messages", `chat_${conversa.chatId}`);
     }
     logoutUser();
     navigate("/login");
   };
 
   const iniciarConversa = async (conversa: Conversa) => {
-    const existingKey = await loadItem("chatDB", "keys", `chat_key_${conversa.id}`);
+    const existingKey = await loadItem("chatDB", "keys", `chat_key_${conversa.chatId}`);
 
     if (!existingKey) {      
       setExpirou(false); 
     } else if (existingKey.expiresAt < Date.now()) {
       setExpirou(true);
-      await removeItem("chatDB", "keys", `chat_key_${conversa.id}`);
-      await removeItem("chatDB", "keys", `public_my_${conversa.id}`);
-      await removeItem("chatDB", "keys", `public_other_${conversa.id}`);
-      await removeItem("chatDB", "messages", `chat_${conversa.id}`);
+      await removeItem("chatDB", "keys", `chat_key_${conversa.chatId}`);
+      await removeItem("chatDB", "keys", `public_my_${conversa.chatId}`);
+      await removeItem("chatDB", "keys", `public_other_${conversa.chatId}`);
+      await removeItem("chatDB", "messages", `chat_${conversa.chatId}`);
     }
 
     setSelectedConversa(conversa);

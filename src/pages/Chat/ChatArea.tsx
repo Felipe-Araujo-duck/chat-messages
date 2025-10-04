@@ -1,5 +1,5 @@
 import { useState, useEffect, useRef } from "react";
-import { MdSend } from "react-icons/md";
+import { MdAlarm, MdBlock, MdHourglassEmpty, MdLock, MdSend, MdWavingHand } from "react-icons/md";
 import Button from "../../components/Button/Button";
 import { useChatMessages, type Conversa } from "../../hooks/useChatMessages";
 import { gerarChaves } from "../../utils/keys";
@@ -71,7 +71,7 @@ export default function ChatArea({ userName, selectedConversa, expirou: expirado
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
   
-  const conversaId = selectedConversa?.id;
+  const conversaId = selectedConversa?.chatId;
 
   // Hook de expiração melhorado
   const { 
@@ -136,17 +136,15 @@ export default function ChatArea({ userName, selectedConversa, expirou: expirado
   // Atualizar estado da conversa quando chaves mudarem
   useEffect(() => {
     if (!conversaId) return;
-
-    let newStatus: 'pending' | 'ready' | 'invited' = 'pending';
     
     if (myPublicKey && otherPublicKey) {
-      newStatus = 'ready';
+      selectedConversa.statusChat = 'Active';
     } else if (myPublicKey && !otherPublicKey) {
-      newStatus = 'invited';
+      selectedConversa.statusChat = 'Pending'
     }
 
     updateConversaState(conversaId, {
-      status: newStatus,
+      conversa: selectedConversa,
       myPublicKey,
       otherPublicKey,
     });
@@ -188,7 +186,9 @@ export default function ChatArea({ userName, selectedConversa, expirou: expirado
       // Gerar novas chaves
       await generateMyKeys();
       
-      updateConversaState(conversaId, { status: 'invited' });
+
+      selectedConversa.statusChat = 'Pending';
+      updateConversaState(conversaId, { conversa: selectedConversa });
 
       // Simular aceitação após 2 segundos
       setTimeout(async () => {
@@ -197,7 +197,8 @@ export default function ChatArea({ userName, selectedConversa, expirou: expirado
           const otherPublicKeyBuffer = await exportPublicKey(otherPair.publicKey);
           
           await setOtherUserPublicKey(otherPublicKeyBuffer);
-          updateConversaState(conversaId, { status: 'ready' });
+          selectedConversa.statusChat = 'Active';
+          updateConversaState(conversaId, { conversa: selectedConversa });
           
         } catch (error) {
           console.error('Erro ao simular aceitação:', error);
@@ -261,7 +262,10 @@ export default function ChatArea({ userName, selectedConversa, expirou: expirado
   if (!selectedConversa) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-gray-500">
-        <h2 className="text-2xl font-semibold mb-2">👋 Olá {userName}</h2>
+        <h2 className="text-2xl font-semibold mb-2 flex items-center gap-2">
+          <MdWavingHand className="text-3xl text-500" />
+          Olá {userName}
+        </h2>
         <p className="text-lg">Selecione uma conversa na lista para começar</p>
       </div>
     );
@@ -269,32 +273,31 @@ export default function ChatArea({ userName, selectedConversa, expirou: expirado
 
   if (expirou) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-6 bg-red-50 p-6">
+      <div className="flex-1 flex flex-col items-center justify-center gap-8 bg-red-50 p-8 rounded-2xl">
         <div className="text-center">
-          <div className="text-6xl mb-4">⏰</div>
+          <MdAlarm className="text-6xl text-red-600 mb-4 mx-auto" />
           <h2 className="text-2xl font-bold text-red-600 mb-2">
             Chat Expirado
           </h2>
           <p className="text-red-500">
-            A sessão para <strong>{selectedConversa.nome}</strong> expirou
+            A sessão para <strong>{selectedConversa.otherUserName}</strong> expirou
           </p>
           <p className="text-sm text-gray-500 mt-2">
             As mensagens foram apagadas por segurança
           </p>
         </div>
-        
-        <div className="flex justify-center">
-          <Button
-            className="flex flex-row items-center gap-2 px-6 py-3 bg-red-600 text-white hover:bg-red-700"
-            onClick={enviarConvite}
-          >
-            Reenviar Convite
-          </Button>
-        </div>
-        
-        <p className="text-xs text-gray-400 text-center max-w-sm">
-          🔒 Um novo par de chaves será gerado para garantir a segurança da conversa
-        </p>
+
+        <Button
+          className="flex items-center gap-2 px-6 py-3 bg-red-600 text-white rounded-lg shadow hover:bg-red-700 transition"
+          onClick={enviarConvite}
+        >
+          Reenviar Convite
+        </Button>
+
+        <p className="text-sm opacity-80 flex items-center gap-1">
+            <MdLock className="text-base" />
+            Um novo par de chaves será gerado para garantir a segurança da conversa
+          </p>
       </div>
     );
   }
@@ -307,11 +310,11 @@ export default function ChatArea({ userName, selectedConversa, expirou: expirado
     );
   }
 
-  if (!currentConversaState?.myPublicKey) {
+  if (!currentConversaState?.myPublicKey && !selectedConversa.statusChat) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-500 p-4">
         <h2 className="text-2xl font-semibold text-center">
-          Iniciar conversa com {selectedConversa.nome}
+          Iniciar conversa com {selectedConversa.otherUserName}
         </h2>
         <Button 
           className="px-6 py-2" 
@@ -324,11 +327,12 @@ export default function ChatArea({ userName, selectedConversa, expirou: expirado
     );
   }
 
-  if (currentConversaState.status === 'invited') {
+  if (currentConversaState?.conversa.statusChat === 'Pending') {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-500 p-4">
-        <h2 className="text-2xl font-semibold text-center">
-          ⏳ Aguardando {selectedConversa.nome} aceitar o convite...
+        <h2 className="text-2xl font-semibold text-center flex items-center justify-center gap-2">
+          <MdHourglassEmpty className="text-2xl animate-spin" />
+          Aguardando {selectedConversa.otherUserName} aceitar o convite...
         </h2>
         <p className="text-sm text-center">
           As chaves de criptografia foram geradas, aguardando a outra parte...
@@ -338,12 +342,31 @@ export default function ChatArea({ userName, selectedConversa, expirou: expirado
     );
   }
 
+  if(currentConversaState?.conversa.statusChat === 'Blocked'){
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-8 bg-yellow-50 p-8 rounded-2xl">
+        <div className="text-center">
+          <MdBlock className="text-6xl text-yellow-600 mb-4 mx-auto" />
+          <h2 className="text-2xl font-bold text-yellow-600 mb-2">
+            Chat Bloqueado
+          </h2>
+          <p className="text-yellow-500">
+            <strong>{selectedConversa.otherUserName}</strong> Recusou seu convite!
+          </p>
+        </div>
+      </div>
+    );
+  }
+
   return (
     <div className="flex-1 flex flex-col h-full">
       <header className="bg-primary text-white p-4 flex justify-between items-center">
         <div>
-          <h1 className="font-bold text-lg">{selectedConversa.nome}</h1>
-          <p className="text-sm opacity-80">🔒 Criptografia de ponta a ponta ativa</p>
+          <h1 className="font-bold text-lg">{selectedConversa.otherUserName}</h1>
+          <p className="text-sm opacity-80 flex items-center gap-1">
+            <MdLock className="text-base" />
+            Criptografia de ponta a ponta ativa
+          </p>
         </div>
         <div className="flex items-center gap-2">
           <span className="text-sm bg-green-500 px-2 py-1 rounded">

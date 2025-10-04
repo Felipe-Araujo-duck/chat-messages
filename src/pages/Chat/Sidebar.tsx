@@ -1,10 +1,6 @@
 import { MdClose, MdMenu, MdLogout } from "react-icons/md";
+import type { Conversa } from "../../hooks/useChatMessages";
 
-
-interface Conversa {
-  id: number;
-  nome: string;
-}
 
 interface SidebarProps {
   conversas: Conversa[];
@@ -40,19 +36,19 @@ export default function Sidebar({
       <ul className="flex-1 overflow-y-auto m-2">
         {conversas.map((c) => (
           <li
-            key={c.id}
+            key={c.chatId}
             className={`
               flex items-center p-2 my-1 rounded-lg cursor-pointer
-              ${selectedConversa?.id === c.id ? "bg-primary text-white" : "bg-white"}
+              ${selectedConversa?.chatId === c.chatId ? "bg-primary text-white" : "bg-white"}
               hover:bg-primary/50 hover:text-white
               transition-colors
             `}
             onClick={() => onSelectConversa(c)}
           >
             <div className="w-8 h-8 flex items-center justify-center rounded-full bg-gray-400 text-white text-sm font-bold">
-              {c.nome[0]}
+              {c.otherUserName[0]}
             </div>
-            {isOpen && <span className="ml-3">{c.nome}</span>}
+            {isOpen && <span className="ml-3">{c.otherUserName}</span>}
           </li>
         ))}
       </ul>

@@ -3,8 +3,10 @@ import { loadItem, saveItem } from '../utils/dbIndexedDB';
 import { encryptRSA, decryptRSA, importPublicKey } from '../utils/crypto/rsa';
 
 export interface Conversa {
-  id: number;
-  nome: string;
+  otherUserId: number;
+  otherUserName: string;
+  statusChat: 'Pending' | 'Active' | 'Blocked' | null;
+  chatId: number;
 }
 
 export interface Message {
