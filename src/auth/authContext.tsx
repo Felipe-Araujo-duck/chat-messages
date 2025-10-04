@@ -1,5 +1,6 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { getProfile, login, logout } from "../services/authService";
+import * as authService from "../services/authService";
 
 type User = {
   id: number; 
@@ -52,8 +53,8 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     setUser(null);
   }
 
-  const register = (username: string, password: string) => {
-    console.log("Usuario criado")
+  const register = async (username: string, password: string) => {
+    await authService.register(username, password);
   }
   
   return (
