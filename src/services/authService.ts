@@ -11,6 +11,11 @@ export async function logout() {
 }
 
 export async function getProfile() {
-  const response = await api.get("/me");
-  return response.data;
+  /* const response = await api.get("/me");
+  return response.data; */
+  
+  return {
+    id: 1,
+    name: 'teste'
+  }
 }

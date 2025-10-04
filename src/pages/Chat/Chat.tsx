@@ -2,8 +2,9 @@ import { useNavigate } from "react-router-dom";
 import { useAuth } from "../../auth/authContext";
 import { useState } from "react";
 import Sidebar from "./Sidebar";
-import ChatArea, { type Conversa } from "./ChatArea";
+import ChatArea  from "./ChatArea";
 import { loadItem, removeItem } from "../../utils/dbIndexedDB";
+import type { Conversa } from "../../hooks/useChatMessages";
 
 export default function Chat() {
   const { user, logoutUser } = useAuth();
@@ -35,7 +36,7 @@ export default function Chat() {
     const existingKey = await loadItem("chatDB", "keys", `chat_key_${conversa.id}`);
 
     if (!existingKey) {      
-      setExpirou(false); // reset de expiração
+      setExpirou(false); 
     } else if (existingKey.expiresAt < Date.now()) {
       setExpirou(true);
       await removeItem("chatDB", "keys", `chat_key_${conversa.id}`);

@@ -11,17 +11,34 @@ type AuthContextType = {
   loginUser: (username: string, password: string) => Promise<void>;
   register: (username: string, password: string) => void;
   logoutUser: () => Promise<void>;
+  loading: boolean;
 }
 
 const AuthContext = createContext<AuthContextType | null>(null);
 
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User>(null);
+  const [loading, setLoading] = useState(true);
 
   useEffect(() => {
-    getProfile()
-      .then(setUser)
-      .catch(() => setUser(null));
+    const checkAuth = async () => {
+      try {
+        const res = await getProfile();
+
+        if (res) {
+          const data = await res;
+          setUser(data); 
+        } else {
+          setUser(null);
+        }
+      } catch (err) {
+        setUser(null);
+      } finally {
+        setLoading(false);
+      }
+    };
+
+    checkAuth();
   }, []);
 
   async function loginUser(username: string, password: string) {
@@ -40,7 +57,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
   }
   
   return (
-    <AuthContext.Provider value={{ user, loginUser, register, logoutUser }}>
+    <AuthContext.Provider value={{ user, loginUser, register, logoutUser, loading }}>
       {children}
     </AuthContext.Provider>
   );

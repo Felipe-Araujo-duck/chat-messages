@@ -1,22 +1,12 @@
 import { useState, useEffect, useRef } from "react";
 import { MdSend } from "react-icons/md";
 import Button from "../../components/Button/Button";
-import { encryptAES, publicKeyToPassword } from "../../utils/crypto";
-import { loadItem, saveItem } from "../../utils/dbIndexedDB";
-import { salvarChavePrivada } from "../../utils/keysIndexedDB";
+import { useChatMessages, type Conversa } from "../../hooks/useChatMessages";
 import { gerarChaves } from "../../utils/keys";
-
-export interface Conversa {
-  id: number;
-  nome: string;
-}
-
-interface Message {
-  id: number;
-  sender: "user" | "other";
-  text?: string;
-  encrypted: any;
-}
+import { exportPublicKey } from "../../utils/crypto/rsa";
+import { useConversasState } from "../../hooks/useConversasState";
+import { useExpiration } from "../../hooks/useExpiration";
+import { useChatKeys } from "../../hooks/userChatKeys";
 
 interface ChatAreaProps {
   userName?: string;
@@ -24,7 +14,6 @@ interface ChatAreaProps {
   expirou: boolean;
 }
 
-// 🔁 Resposta automática fake
 function respostaAutomatica(text: string) {
   const respostas = [
     "Recebi sua mensagem 😉",
@@ -35,141 +24,240 @@ function respostaAutomatica(text: string) {
   return respostas[Math.floor(Math.random() * respostas.length)];
 }
 
-export default function ChatArea({ userName, selectedConversa, expirou }: ChatAreaProps) {
-  const [messages, setMessages] = useState<Message[]>([]);
+// Componente para mensagem com decrypt assíncrono
+function DecryptingMessage({ message, decryptMessage }: { 
+  message: any; 
+  decryptMessage: (msg: any) => Promise<string>; 
+}) {
+  const [text, setText] = useState<string>("Decifrando...");
+  const [error, setError] = useState<string | null>(null);
+
+  useEffect(() => {
+    let mounted = true;
+
+    const decrypt = async () => {
+      try {
+        const decryptedText = await decryptMessage(message);
+        if (mounted) {
+          setText(decryptedText);
+        }
+      } catch (err) {
+        if (mounted) {
+          setError("Falha ao decifrar");
+          console.error('Erro ao decifrar:', err);
+        }
+      }
+    };
+
+    decrypt();
+
+    return () => {
+      mounted = false;
+    };
+  }, [message, decryptMessage]);
+
+  return (
+    <div className={`p-3 rounded-lg max-w-xs shadow ${
+      message.sender === "user" 
+        ? "bg-blue-500 text-white self-end" 
+        : "bg-gray-200 text-gray-800 self-start"
+    }`}>
+      {error || text}
+    </div>
+  );
+}
+
+export default function ChatArea({ userName, selectedConversa, expirou: expiradoProp }: ChatAreaProps) {
   const [newMessage, setNewMessage] = useState("");
-  const [loading, setLoading] = useState(false);
-  const [expiracaoChat, setExpiracaoChat] = useState(expirou);
-
-  const [otherPublicKey, setOtherPublicKey] = useState<ArrayBuffer | null>(null);
-  const[myPublicKey, setMyPublicKey] = useState<ArrayBuffer | null>(null);
-
-  const lastConversaId = useRef<number | null>(null);
+  const [sending, setSending] = useState(false);
+  
   const conversaId = selectedConversa?.id;
 
-  // 📤 Enviar ou reenviar convite
+  // Hook de expiração melhorado
+  const { 
+    expirou, 
+    renovarExpiracao, 
+    forcarExpiração 
+  } = useExpiration(expiradoProp, Number(conversaId));
+
+  const {
+    conversasState,
+    initializeConversa,
+    updateConversaState,
+    getConversaState,
+  } = useConversasState();
+
+  const currentConversaState = getConversaState(conversaId || null);
+
+  // Hooks de chaves e mensagens
+  const {
+    myPrivateKey,
+    myPublicKey,
+    otherPublicKey,
+    loading: keysLoading,
+    loadKeys,
+    generateMyKeys,
+    setOtherUserPublicKey,
+    clearKeys,
+  } = useChatKeys(conversaId || null);
+
+  const {
+    messages,
+    loading: messagesLoading,
+    loadMessages,
+    addMessage,
+    decryptMessage,
+    encryptMessage,
+    clearMessages,
+  } = useChatMessages(conversaId || null, myPrivateKey);
+
+  const messagesEndRef = useRef<HTMLDivElement>(null);
+
+  // Limpar estado quando a conversa mudar
+  useEffect(() => {
+    setNewMessage("");
+    setSending(false);
+  }, [conversaId]);
+
+  // Inicializar conversa quando selecionada
+  useEffect(() => {
+    if (selectedConversa && !currentConversaState) {
+      initializeConversa(selectedConversa);
+    }
+  }, [selectedConversa, currentConversaState, initializeConversa]);
+
+  // Forçar expiração se veio da prop
+  useEffect(() => {
+    if (expiradoProp) {
+      forcarExpiração();
+    }
+  }, [expiradoProp, forcarExpiração]);
+
+  // Atualizar estado da conversa quando chaves mudarem
+  useEffect(() => {
+    if (!conversaId) return;
+
+    let newStatus: 'pending' | 'ready' | 'invited' = 'pending';
+    
+    if (myPublicKey && otherPublicKey) {
+      newStatus = 'ready';
+    } else if (myPublicKey && !otherPublicKey) {
+      newStatus = 'invited';
+    }
+
+    updateConversaState(conversaId, {
+      status: newStatus,
+      myPublicKey,
+      otherPublicKey,
+    });
+  }, [conversaId, myPublicKey, otherPublicKey, updateConversaState]);
+
+  // Carregar dados quando a conversa for selecionada
+  useEffect(() => {
+    if (!conversaId || expirou) return;
+
+    const initializeChat = async () => {
+      await loadKeys();
+      await loadMessages();
+    };
+
+    initializeChat();
+  }, [conversaId, expirou, loadKeys, loadMessages]);
+
+  // Scroll para baixo
+  useEffect(() => {
+    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
+  }, [messages]);
+
+  // Enviar ou reenviar convite
   const enviarConvite = async () => {
     if (!conversaId) return;
 
-    // 1. Gera meu par de chaves
-    const keyPair = await gerarChaves();
-    const privateKeyBuffer = await crypto.subtle.exportKey("pkcs8", keyPair.privateKey);
-    const publicKeyBuffer = await crypto.subtle.exportKey("spki", keyPair.publicKey);
-
-    const expiresAt = Date.now() + 1000 * 60 * 2; // 2min para teste
-    setExpiracaoChat(false);
-    await salvarChavePrivada(conversaId.toString(), privateKeyBuffer, "tokenFake", expiresAt);
-    await saveItem("chatDB", "keys", `public_my_${conversaId}`, publicKeyBuffer);
-
-    setMyPublicKey(await loadItem("chatDB", "keys", `public_my_${conversaId}`))
-
-    console.log("📤 Convite enviado com minhas chaves");
-
-    // 2. Simula aceite do outro usuário (2s depois)
-    setTimeout(async () => {
-      //Aqui vai ficar a requisição webSocket
-
-      /* Simula o outro usuario aceitando o convite e criando as chaves */
-      const otherPair = await gerarChaves();
-      const otherPrivateKeyBuffer = await crypto.subtle.exportKey("pkcs8", otherPair.privateKey);
-      const otherPublicKeyBuffer = await crypto.subtle.exportKey("spki", otherPair.publicKey); // trocar isso para chave que retornar do webSocket
-
-      const otherExpiresAt = Date.now() + 1000 * 60 * 2;
-      //Isso aqui não vai existir, somente para simular outro usuario
-      await salvarChavePrivada(`other_${conversaId}`, otherPrivateKeyBuffer, "tokenFake", otherExpiresAt);
-      /* -------------------------------------------------------------- */
-
-      await saveItem("chatDB", "keys", `public_other_${conversaId}`, otherPublicKeyBuffer); // salva no DB a chave que retorna no webSocket
-      setOtherPublicKey(otherPublicKeyBuffer);
-
-      console.log("✅ Convite aceito, chave pública do outro salva");
-    }, 2000);
-  };
-
-  // ✉️ Enviar mensagem
-  const handleSend = async () => {
-    if (!newMessage.trim() || !otherPublicKey || !myPublicKey) return;
-
-    const data = new TextEncoder().encode(newMessage);
-    const password = await publicKeyToPassword(otherPublicKey);
-    const encrypted = await encryptAES(data.buffer, password);
-
-    setMessages(prev => [...prev, {
-      id: Date.now(),
-      sender: "user",
-      text: newMessage,
-      encrypted
-    }]);
-    setNewMessage("");
-
-    // Resposta simulada - isso aqui é como se fosse o usuario envidando a menssagem
-    setTimeout(async () => {
-      const resposta = respostaAutomatica(newMessage);
-      const respostaData = new TextEncoder().encode(resposta);
-      const password = await publicKeyToPassword(myPublicKey);
-      const encryptedResposta = await encryptAES(respostaData.buffer, password);
-      setMessages(prev => [...prev, {
-        id: Date.now() + 1,
-        sender: "other",
-        text: resposta,
-        encrypted: encryptedResposta
-      }]);
-    }, 1000);
-  };
-
-  // Efeito para limpar mensagens quando expirar
-  useEffect(() => {
-    if (expirou && conversaId) {
-      console.log("Token expirado - limpando mensagens");
-      setMessages([]);
-      setNewMessage("");
-    }
-  }, [expirou, conversaId]);
-
-  // 🔄 Carregar histórico
-  useEffect(() => {
-    if (!conversaId || expirou) {
-      setMessages([]);
-      setNewMessage("");
-      return;
-    }
-
-    async function carregarHistorico() {
-      setLoading(true);
-      try {
-        const historico: Message[] | undefined = await loadItem("chatDB", "messages", `chat_${conversaId}`);
-        setMyPublicKey(await loadItem("chatDB", "keys", `public_my_${conversaId}`))
-        setOtherPublicKey(await loadItem("chatDB", "keys", `public_other_${conversaId}`))
-        setMessages(historico && Array.isArray(historico) ? historico : []);
-        if(!historico && !Array.isArray(historico)){
-          setNewMessage("");
-        }
-        
-      } catch (error) {
-        console.error("Erro ao carregar histórico:", error);
-        setMessages([]);
-        setNewMessage("");
-      } finally {
-        setLoading(false);
+    try {
+      
+      // Se está expirado, limpar estado primeiro
+      if (expirou) {
+        clearKeys();
+        clearMessages();
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
+
+      // Renovar expiração
+      renovarExpiracao(2);
+      
+      // Gerar novas chaves
+      await generateMyKeys();
+      
+      updateConversaState(conversaId, { status: 'invited' });
+
+      // Simular aceitação após 2 segundos
+      setTimeout(async () => {
+        try {
+          const otherPair = await gerarChaves();
+          const otherPublicKeyBuffer = await exportPublicKey(otherPair.publicKey);
+          
+          await setOtherUserPublicKey(otherPublicKeyBuffer);
+          updateConversaState(conversaId, { status: 'ready' });
+          
+        } catch (error) {
+          console.error('Erro ao simular aceitação:', error);
+        }
+      }, 2000);
+
+    } catch (error) {
+      console.error('Erro ao enviar convite:', error);
     }
+  };
 
-    carregarHistorico();
-  }, [conversaId, expirou]);
+  //Enviar mensagem
+  const handleSend = async () => {
+    if (!newMessage.trim() || !otherPublicKey || !myPublicKey || sending || expirou) return;
 
-  // 💾 Salvar histórico
-  useEffect(() => {
-    if (!conversaId || messages.length === 0 || expirou) return;
+    setSending(true);
+    try {
+      // Renovar expiração
+      renovarExpiracao(2);
+      const encryptedForOther = await encryptMessage(newMessage, otherPublicKey);
+      const encryptedForMe = await encryptMessage(newMessage, myPublicKey);
 
-    if (lastConversaId.current !== conversaId) {
-      lastConversaId.current = conversaId;
-      return;
+      await addMessage({
+        sender: "user",
+        encrypted: encryptedForMe,
+        publicKey: myPublicKey,
+      });
+
+      setNewMessage("");
+
+      setTimeout(async () => {
+        try {
+          renovarExpiracao(2);
+          const resposta = respostaAutomatica(newMessage);
+          const encryptedResposta = await encryptMessage(resposta, myPublicKey);
+
+          await addMessage({
+            sender: "other",
+            encrypted: encryptedResposta,
+            publicKey: otherPublicKey,
+          });
+        } catch (error) {
+          console.error('Erro na resposta automática:', error);
+        }
+      }, 1000);
+
+    } catch (error) {
+      console.error('Erro ao enviar mensagem:', error);
+    } finally {
+      setSending(false);
     }
+  };
 
-    saveItem("chatDB", "messages", `chat_${conversaId}`, messages);
-  }, [messages, conversaId, expirou]);
+  const handleKeyPress = (e: React.KeyboardEvent) => {
+    if (e.key === 'Enter' && !e.shiftKey) {
+      e.preventDefault();
+      handleSend();
+    }
+  };
 
-  // --- Renderização ---
   if (!selectedConversa) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-gray-500">
@@ -179,20 +267,39 @@ export default function ChatArea({ userName, selectedConversa, expirou }: ChatAr
     );
   }
 
-  if (expiracaoChat) {
+  if (expirou) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 bg-red-50">
-        <p className="text-red-600 font-semibold">
-          ⏰ O chat para {selectedConversa.nome} expirou
+      <div className="flex-1 flex flex-col items-center justify-center gap-6 bg-red-50 p-6">
+        <div className="text-center">
+          <div className="text-6xl mb-4">⏰</div>
+          <h2 className="text-2xl font-bold text-red-600 mb-2">
+            Chat Expirado
+          </h2>
+          <p className="text-red-500">
+            A sessão para <strong>{selectedConversa.nome}</strong> expirou
+          </p>
+          <p className="text-sm text-gray-500 mt-2">
+            As mensagens foram apagadas por segurança
+          </p>
+        </div>
+        
+        <div className="flex justify-center">
+          <Button
+            className="flex flex-row items-center gap-2 px-6 py-3 bg-red-600 text-white hover:bg-red-700"
+            onClick={enviarConvite}
+          >
+            Reenviar Convite
+          </Button>
+        </div>
+        
+        <p className="text-xs text-gray-400 text-center max-w-sm">
+          🔒 Um novo par de chaves será gerado para garantir a segurança da conversa
         </p>
-        <Button className="px-6 py-2 bg-red-600 text-white hover:bg-red-700" onClick={enviarConvite}>
-          Reenviar convite
-        </Button>
       </div>
     );
   }
 
-  if (loading) {
+  if (keysLoading || messagesLoading) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center text-gray-500">
         <h2 className="text-2xl font-semibold">Carregando conversa...</h2>
@@ -200,52 +307,91 @@ export default function ChatArea({ userName, selectedConversa, expirou }: ChatAr
     );
   }
 
-  if (!myPublicKey) {
+  if (!currentConversaState?.myPublicKey) {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-500">
-        <h2 className="text-2xl font-semibold">Iniciar conversa com {selectedConversa.nome}</h2>
-        <Button className="px-6 py-2" onClick={enviarConvite}>Enviar Convite</Button>
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-500 p-4">
+        <h2 className="text-2xl font-semibold text-center">
+          Iniciar conversa com {selectedConversa.nome}
+        </h2>
+        <Button 
+          className="px-6 py-2" 
+          onClick={enviarConvite} 
+          disabled={keysLoading}
+        >
+          {keysLoading ? "Gerando chaves..." : "Enviar Convite"}
+        </Button>
       </div>
     );
   }
 
-  if (!otherPublicKey && myPublicKey) {
+  if (currentConversaState.status === 'invited') {
     return (
-      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-500">
-        <h2 className="text-2xl font-semibold">⏳ Aguardando {selectedConversa.nome} aceitar o convite...</h2>
+      <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-500 p-4">
+        <h2 className="text-2xl font-semibold text-center">
+          ⏳ Aguardando {selectedConversa.nome} aceitar o convite...
+        </h2>
+        <p className="text-sm text-center">
+          As chaves de criptografia foram geradas, aguardando a outra parte...
+        </p>
+        
       </div>
     );
   }
 
   return (
-    <div className="flex-1 flex flex-col">
+    <div className="flex-1 flex flex-col h-full">
       <header className="bg-primary text-white p-4 flex justify-between items-center">
-        <h1 className="font-bold text-lg">{selectedConversa.nome}</h1>
+        <div>
+          <h1 className="font-bold text-lg">{selectedConversa.nome}</h1>
+          <p className="text-sm opacity-80">🔒 Criptografia de ponta a ponta ativa</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="text-sm bg-green-500 px-2 py-1 rounded">
+            Seguro
+          </span>
+        </div>
       </header>
 
-      <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-2">
-        {messages.map(msg => (
-          <div
-            key={msg.id}
-            className={`p-3 rounded-lg max-w-xs shadow ${
-              msg.sender === "user" ? "bg-blue-500 text-white self-end" : "bg-white self-start"
-            }`}
-          >
-            {msg.text}
+      <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-3 bg-gray-50">
+        {messages.length === 0 ? (
+          <div className="flex-1 flex items-center justify-center text-gray-400">
+            <p>Nenhuma mensagem ainda. Envie a primeira mensagem!</p>
           </div>
-        ))}
+        ) : (
+          messages.map(msg => (
+            <DecryptingMessage
+              key={msg.id}
+              message={msg}
+              decryptMessage={decryptMessage}
+            />
+          ))
+        )}
+        <div ref={messagesEndRef} />
       </div>
 
-      <div className="p-4 bg-white flex gap-2 w-full">
-        <input
-          type="text"
-          placeholder="Digite sua mensagem..."
-          value={newMessage}
-          onChange={(e) => setNewMessage(e.target.value)}
-          onKeyDown={(e) => e.key === "Enter" && handleSend()}
-          className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow duration-200"
-        />
-        <Button onClick={handleSend}><MdSend size={20} /></Button>
+      <div className="p-4 bg-white border-t border-gray-200">
+        <div className="flex gap-2 w-full">
+          <input
+            type="text"
+            placeholder="Digite sua mensagem..."
+            value={newMessage}
+            onChange={(e) => setNewMessage(e.target.value)}
+            onKeyDown={handleKeyPress}
+            disabled={sending}
+            className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow duration-200 disabled:opacity-50"
+          />
+          <Button 
+            onClick={handleSend} 
+            disabled={sending || !newMessage.trim()}
+            className="px-4 py-2"
+          >
+            {sending ? (
+              <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
+            ) : (
+              <MdSend size={20} />
+            )}
+          </Button>
+        </div>
       </div>
     </div>
   );

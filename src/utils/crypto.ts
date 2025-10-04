@@ -1,4 +1,3 @@
-
 export async function deriveKey(password: string, salt: Uint8Array) {
   const pwKey = await crypto.subtle.importKey(
     "raw",
@@ -30,7 +29,7 @@ export async function encryptAES(data: ArrayBuffer, password: string) {
   const iv = crypto.getRandomValues(new Uint8Array(12));
   const key = await deriveKey(password, salt);
   const cipher = await crypto.subtle.encrypt({ name: "AES-GCM", iv }, key, data);
-  return { cipher, iv, salt }; // armazenar como ArrayBuffer diretamente no IndexedDB
+  return { cipher, iv, salt };
 }
 
 export async function decryptAES(cipher: ArrayBuffer, iv: ArrayBuffer, salt: ArrayBuffer, password: string) {
@@ -39,7 +38,3 @@ export async function decryptAES(cipher: ArrayBuffer, iv: ArrayBuffer, salt: Arr
   return decrypted;
 }
 
-export async function publicKeyToPassword(publicKeyBuffer: ArrayBuffer) {
-  const hash = await crypto.subtle.digest("SHA-256", publicKeyBuffer);
-  return btoa(String.fromCharCode(...new Uint8Array(hash))).slice(0, 32); 
-}
