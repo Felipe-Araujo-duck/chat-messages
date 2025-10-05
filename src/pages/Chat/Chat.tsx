@@ -57,6 +57,7 @@ export default function Chat() {
         onLogout={handleLogout}
       />
       <ChatArea
+        userId={user?.id}
         userName={user?.name}
         selectedConversa={selectedConversa}
         expirou={expirou}

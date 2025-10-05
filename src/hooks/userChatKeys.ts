@@ -4,6 +4,7 @@ import { loadItem, saveItem } from '../utils/dbIndexedDB';
 import { salvarChavePrivada, recuperarChavePrivada } from '../utils/keysIndexedDB';
 import { gerarChaves } from '../utils/keys';
 import { exportPrivateKey, exportPublicKey } from '../utils/crypto/rsa';
+import { registerPublicKey } from '../api/signalR';
 
 export function useChatKeys(conversaId: number | null) {
   const [myPrivateKey, setMyPrivateKey] = useState<CryptoKey | null>(null);
@@ -50,7 +51,6 @@ export function useChatKeys(conversaId: number | null) {
   }, [conversaId]);
 
   const generateMyKeys = useCallback(async () => {
-    debugger
     if (!conversaId) return;
 
     try {      
@@ -58,6 +58,12 @@ export function useChatKeys(conversaId: number | null) {
       const keyPair = await gerarChaves();
       const privateKeyBuffer = await exportPrivateKey(keyPair.privateKey);
       const publicKeyBuffer = await exportPublicKey(keyPair.publicKey);
+
+      const publicKeyBase64 = btoa(
+        String.fromCharCode(...new Uint8Array(publicKeyBuffer))
+      );
+
+      await registerPublicKey(publicKeyBase64, conversaId);
 
       // Salvar chaves
       const expiresAt = Date.now() + 1000 * 60 * 2; // 2 minutos
@@ -86,6 +92,16 @@ export function useChatKeys(conversaId: number | null) {
     setMyPublicKey(null);
     setOtherPublicKey(null);
   }, []);
+
+  function base64ToArrayBuffer(base64: string): ArrayBuffer {
+  const binaryString = atob(base64);
+  const len = binaryString.length;
+  const bytes = new Uint8Array(len);
+  for (let i = 0; i < len; i++) {
+    bytes[i] = binaryString.charCodeAt(i);
+  }
+  return bytes.buffer;
+}
 
   return {
     myPrivateKey,

@@ -7,8 +7,10 @@ import { exportPublicKey } from "../../utils/crypto/rsa";
 import { useConversasState } from "../../hooks/useConversasState";
 import { useExpiration } from "../../hooks/useExpiration";
 import { useChatKeys } from "../../hooks/userChatKeys";
+import { joinChat, sendMessage } from "../../api/signalR";
 
 interface ChatAreaProps {
+  userId?: number;
   userName?: string;
   selectedConversa: Conversa | null;
   expirou: boolean;
@@ -67,7 +69,7 @@ function DecryptingMessage({ message, decryptMessage }: {
   );
 }
 
-export default function ChatArea({ userName, selectedConversa, expirou: expiradoProp }: ChatAreaProps) {
+export default function ChatArea({ userId, userName, selectedConversa, expirou: expiradoProp }: ChatAreaProps) {
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
   
@@ -169,7 +171,8 @@ export default function ChatArea({ userName, selectedConversa, expirou: expirado
 
   // Enviar ou reenviar convite
   const enviarConvite = async () => {
-    if (!conversaId) return;
+    debugger;
+    await joinChat(userId!, selectedConversa?.otherUserId ?? 0, selectedConversa?.chatId, true)
 
     try {
       
@@ -221,6 +224,11 @@ export default function ChatArea({ userName, selectedConversa, expirou: expirado
       renovarExpiracao(2);
       const encryptedForOther = await encryptMessage(newMessage, otherPublicKey);
       const encryptedForMe = await encryptMessage(newMessage, myPublicKey);
+
+      const encryptedForOtherBase64 = btoa(
+        String.fromCharCode(...new Uint8Array(encryptedForOther))
+      );
+      await sendMessage(conversaId ?? 0, encryptedForOtherBase64);
 
       await addMessage({
         sender: "user",
