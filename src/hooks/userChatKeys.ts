@@ -50,6 +50,7 @@ export function useChatKeys(conversaId: number | null) {
   }, [conversaId]);
 
   const generateMyKeys = useCallback(async () => {
+    debugger
     if (!conversaId) return;
 
     try {      

@@ -11,10 +11,7 @@ export default function Chat() {
   const navigate = useNavigate();
 
   const [conversas] = useState<Conversa[]>([
-    { chatId: 1, otherUserId: 4, otherUserName: "João", statusChat: null },
-    { chatId: 2, otherUserId: 3, otherUserName: "Maria", statusChat: 'Pending' },
-    { chatId: 3, otherUserId: 2, otherUserName: "Equipe Suporte", statusChat: 'Blocked' },
-    { chatId: 4, otherUserId: 1, otherUserName: "Ana", statusChat: 'Active' },
+    
   ]);
 
   const [selectedConversa, setSelectedConversa] = useState<Conversa | null>(null);
