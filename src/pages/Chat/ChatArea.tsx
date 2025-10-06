@@ -1,13 +1,13 @@
-import { useState, useEffect, useRef } from "react";
-import { MdAlarm, MdBlock, MdHourglassEmpty, MdLock, MdSend, MdWavingHand } from "react-icons/md";
+import { useState, useEffect, useRef, useCallback } from "react";
+import { MdAlarm, MdBlock, MdHourglassEmpty, MdLock, MdPersonAdd, MdSend, MdWavingHand } from "react-icons/md";
 import Button from "../../components/Button/Button";
 import { useChatMessages, type Conversa } from "../../hooks/useChatMessages";
 import { gerarChaves } from "../../utils/keys";
 import { exportPublicKey } from "../../utils/crypto/rsa";
-import { useConversasState } from "../../hooks/useConversasState";
+import { useConversasState, type ConversaState } from "../../hooks/useConversasState";
 import { useExpiration } from "../../hooks/useExpiration";
 import { useChatKeys } from "../../hooks/userChatKeys";
-import { joinChat, sendMessage } from "../../api/signalR";
+import { joinChat, onNotificationAccepted, onNotifyReceiver, onNotifyRefused, onReceiveMessage, sendMessage } from "../../api/signalR";
 
 interface ChatAreaProps {
   userId?: number;
@@ -27,9 +27,9 @@ function respostaAutomatica(text: string) {
 }
 
 // Componente para mensagem com decrypt assíncrono
-function DecryptingMessage({ message, decryptMessage }: { 
-  message: any; 
-  decryptMessage: (msg: any) => Promise<string>; 
+function DecryptingMessage({ message, decryptMessage }: {
+  message: any;
+  decryptMessage: (msg: any) => Promise<string>;
 }) {
   const [text, setText] = useState<string>("Decifrando...");
   const [error, setError] = useState<string | null>(null);
@@ -59,11 +59,10 @@ function DecryptingMessage({ message, decryptMessage }: {
   }, [message, decryptMessage]);
 
   return (
-    <div className={`p-3 rounded-lg max-w-xs shadow ${
-      message.sender === "user" 
-        ? "bg-blue-500 text-white self-end" 
+    <div className={`p-3 rounded-lg max-w-xs shadow ${message.sender === "user"
+        ? "bg-blue-500 text-white self-end"
         : "bg-gray-200 text-gray-800 self-start"
-    }`}>
+      }`}>
       {error || text}
     </div>
   );
@@ -72,16 +71,24 @@ function DecryptingMessage({ message, decryptMessage }: {
 export default function ChatArea({ userId, userName, selectedConversa, expirou: expiradoProp }: ChatAreaProps) {
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
-  
-  const conversaId = selectedConversa?.chatId;
+  const [conversaId, updateConversaId] = useState<number>(0);
 
-  // Hook de expiração melhorado
-  const { 
-    expirou, 
-    renovarExpiracao, 
-    forcarExpiração 
+  // Efeito para atualizar conversaId quando selectedConversa mudar
+  useEffect(() => {
+    if (selectedConversa?.chatId && selectedConversa.chatId !== conversaId) {
+      console.log('🔄 [ChatArea] Atualizando conversaId:', selectedConversa.chatId);
+      updateConversaId(selectedConversa.chatId);
+    }
+  }, [selectedConversa, conversaId]);
+
+  // Hook de expiração
+  const {
+    expirou,
+    renovarExpiracao,
+    forcarExpiração
   } = useExpiration(expiradoProp, Number(conversaId));
 
+  // Estado das conversas
   const {
     conversasState,
     initializeConversa,
@@ -91,7 +98,7 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
 
   const currentConversaState = getConversaState(conversaId || null);
 
-  // Hooks de chaves e mensagens
+  // Chaves de criptografia
   const {
     myPrivateKey,
     myPublicKey,
@@ -101,8 +108,10 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
     generateMyKeys,
     setOtherUserPublicKey,
     clearKeys,
+    forceReload,
   } = useChatKeys(conversaId || null);
 
+  // Mensagens
   const {
     messages,
     loading: messagesLoading,
@@ -124,6 +133,7 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
   // Inicializar conversa quando selecionada
   useEffect(() => {
     if (selectedConversa && !currentConversaState) {
+      console.log('🔄 [ChatArea] Inicializando nova conversa:', selectedConversa.chatId);
       initializeConversa(selectedConversa);
     }
   }, [selectedConversa, currentConversaState, initializeConversa]);
@@ -131,31 +141,43 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
   // Forçar expiração se veio da prop
   useEffect(() => {
     if (expiradoProp) {
+      console.log('⚠️ [ChatArea] Expiração forçada da prop');
       forcarExpiração();
     }
   }, [expiradoProp, forcarExpiração]);
 
   // Atualizar estado da conversa quando chaves mudarem
   useEffect(() => {
-    if (!conversaId) return;
-    
-    if (myPublicKey && otherPublicKey) {
-      selectedConversa.statusChat = 'Active';
-    } else if (myPublicKey && !otherPublicKey) {
-      selectedConversa.statusChat = 'Pending'
-    }
+    if (!conversaId || !selectedConversa) return;
 
-    updateConversaState(conversaId, {
-      conversa: selectedConversa,
+    console.log('🔄 [ChatArea] Atualizando estado da conversa com chaves:', {
+      conversaId,
+      temMyPublicKey: !!myPublicKey,
+      temOtherPublicKey: !!otherPublicKey
+    });
+
+    const updates: Partial<any> = {
+      conversa: { ...selectedConversa },
       myPublicKey,
       otherPublicKey,
-    });
-  }, [conversaId, myPublicKey, otherPublicKey, updateConversaState]);
+    };
+
+    // Atualizar status baseado nas chaves
+    if (myPublicKey && otherPublicKey) {
+      updates.conversa.statusChat = 'Active';
+    } else if (myPublicKey && !otherPublicKey) {
+      updates.conversa.statusChat = 'Pending';
+    }
+
+    updateConversaState(conversaId, updates);
+  }, [conversaId, myPublicKey, otherPublicKey, selectedConversa, updateConversaState]);
 
   // Carregar dados quando a conversa for selecionada
   useEffect(() => {
     if (!conversaId || expirou) return;
 
+    console.log('🔄 [ChatArea] Carregando dados para conversa:', conversaId);
+    
     const initializeChat = async () => {
       await loadKeys();
       await loadMessages();
@@ -169,65 +191,126 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
+  // Handlers de WebSocket
+  // No seu ChatArea, substitua o useEffect problemático por este:
+useEffect(() => {
+  if (!conversaId || !selectedConversa) return;
+
+  console.log('🔄 [ChatArea] Atualizando estado da conversa com chaves:', {
+    conversaId,
+    temMyPublicKey: !!myPublicKey,
+    temOtherPublicKey: !!otherPublicKey
+  });
+
+  // Determinar o status baseado nas chaves
+  let novoStatus: 'Pending' | 'Active' | 'Blocked' | null = selectedConversa.statusChat;
+  
+  if (myPublicKey && otherPublicKey) {
+    novoStatus = 'Active';
+  } else if (myPublicKey && !otherPublicKey) {
+    novoStatus = 'Pending';
+  }
+
+  const conversaAtualizada: Conversa = {
+    ...selectedConversa,
+    statusChat: novoStatus
+  };
+
+  const updates: Partial<ConversaState> = {
+    conversa: conversaAtualizada,
+    myPublicKey,
+    otherPublicKey,
+  };
+
+  updateConversaState(conversaId, updates);
+}, [conversaId, myPublicKey, otherPublicKey, selectedConversa, updateConversaState]);
+
+  // Recusar convite
+  const recusarConvite = async () => {
+    try {
+      console.log('❌ [ChatArea] Recusando convite');
+      const convite = await joinChat(userId!, selectedConversa?.otherUserId ?? 0, selectedConversa?.chatId, false);
+      
+      if (selectedConversa) {
+        const conversaAtualizada = {
+          ...selectedConversa,
+          statusChat: convite.status,
+          chatId: convite.id,
+        };
+        
+        // Atualizar na ordem correta
+        updateConversaId(conversaAtualizada.chatId);
+        // Aguardar um ciclo de renderização
+        setTimeout(() => {
+          updateConversaState(conversaAtualizada.chatId, { conversa: conversaAtualizada });
+        }, 0);
+      }
+    } catch (error) {
+      console.error('Erro ao recusar convite:', error);
+    }
+  };
+
   // Enviar ou reenviar convite
   const enviarConvite = async () => {
-    debugger;
-    await joinChat(userId!, selectedConversa?.otherUserId ?? 0, selectedConversa?.chatId, true)
-
     try {
-      
-      // Se está expirado, limpar estado primeiro
-      if (expirou) {
-        clearKeys();
-        clearMessages();
-        await new Promise(resolve => setTimeout(resolve, 100));
+      console.log('✅ [ChatArea] Enviando convite');
+      const convite = await joinChat(userId!, selectedConversa?.otherUserId ?? 0, selectedConversa?.chatId, true);
+
+      if (selectedConversa) {
+        const conversaAtualizada = {
+          ...selectedConversa,
+          statusChat: convite.status,
+          chatId: convite.id,
+        };
+
+        console.log('🔄 [ChatArea] Atualizando estado com novo chatId:', conversaAtualizada.chatId);
+        
+        // 1. Atualizar conversaId primeiro
+        updateConversaId(conversaAtualizada.chatId);
+        
+        // 2. Aguardar próximo ciclo de renderização
+        setTimeout(async () => {
+          // 3. Atualizar estado da conversa
+          updateConversaState(conversaAtualizada.chatId, { conversa: conversaAtualizada });
+
+          // 4. Se está expirado, limpar estado primeiro
+          if (expirou) {
+            console.log('🗑️ [ChatArea] Limpando estado expirado');
+            clearKeys();
+            clearMessages();
+            await new Promise(resolve => setTimeout(resolve, 100));
+          }
+
+          // 5. Renovar expiração
+          renovarExpiracao(2);
+
+          // 6. Gerar novas chaves
+          console.log('🔑 [ChatArea] Gerando chaves para:', conversaAtualizada.chatId);
+          await generateMyKeys(conversaAtualizada.chatId);
+        }, 0);
       }
-
-      // Renovar expiração
-      renovarExpiracao(2);
-      
-      // Gerar novas chaves
-      await generateMyKeys();
-      
-
-      selectedConversa.statusChat = 'Pending';
-      updateConversaState(conversaId, { conversa: selectedConversa });
-
-      // Simular aceitação após 2 segundos
-      setTimeout(async () => {
-        try {
-          const otherPair = await gerarChaves();
-          const otherPublicKeyBuffer = await exportPublicKey(otherPair.publicKey);
-          
-          await setOtherUserPublicKey(otherPublicKeyBuffer);
-          selectedConversa.statusChat = 'Active';
-          updateConversaState(conversaId, { conversa: selectedConversa });
-          
-        } catch (error) {
-          console.error('Erro ao simular aceitação:', error);
-        }
-      }, 2000);
 
     } catch (error) {
       console.error('Erro ao enviar convite:', error);
     }
   };
 
-  //Enviar mensagem
+  // Enviar mensagem
   const handleSend = async () => {
-    debugger
     if (!newMessage.trim() || !otherPublicKey || !myPublicKey || sending || expirou) return;
 
     setSending(true);
     try {
       // Renovar expiração
       renovarExpiracao(2);
+      
       const encryptedForOther = await encryptMessage(newMessage, otherPublicKey);
       const encryptedForMe = await encryptMessage(newMessage, myPublicKey);
 
       const encryptedForOtherBase64 = btoa(
         String.fromCharCode(...new Uint8Array(encryptedForOther))
       );
+      
       await sendMessage(conversaId ?? 0, encryptedForOtherBase64);
 
       await addMessage({
@@ -238,6 +321,7 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
 
       setNewMessage("");
 
+      // Resposta automática
       setTimeout(async () => {
         try {
           renovarExpiracao(2);
@@ -267,6 +351,19 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
       handleSend();
     }
   };
+
+  // Debug do estado atual
+  useEffect(() => {
+    console.log('🔍 [ChatArea] Estado atual:', {
+      conversaId,
+      selectedConversaId: selectedConversa?.chatId,
+      currentConversaState: !!currentConversaState,
+      expirou,
+      myPublicKey: !!myPublicKey,
+      otherPublicKey: !!otherPublicKey,
+      messagesCount: messages.length
+    });
+  }, [conversaId, selectedConversa, currentConversaState, expirou, myPublicKey, otherPublicKey, messages]);
 
   if (!selectedConversa) {
     return (
@@ -304,9 +401,9 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
         </Button>
 
         <p className="text-sm opacity-80 flex items-center gap-1">
-            <MdLock className="text-base" />
-            Um novo par de chaves será gerado para garantir a segurança da conversa
-          </p>
+          <MdLock className="text-base" />
+          Um novo par de chaves será gerado para garantir a segurança da conversa
+        </p>
       </div>
     );
   }
@@ -325,9 +422,9 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
         <h2 className="text-2xl font-semibold text-center">
           Iniciar conversa com {selectedConversa.otherUserName}
         </h2>
-        <Button 
-          className="px-6 py-2" 
-          onClick={enviarConvite} 
+        <Button
+          className="px-6 py-2"
+          onClick={enviarConvite}
           disabled={keysLoading}
         >
           {keysLoading ? "Gerando chaves..." : "Enviar Convite"}
@@ -336,7 +433,7 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
     );
   }
 
-  if (currentConversaState?.conversa.statusChat === 'Pending') {
+  if (currentConversaState?.conversa.statusChat === 'Pending' && !currentConversaState?.conversa.accepted) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-500 p-4">
         <h2 className="text-2xl font-semibold text-center flex items-center justify-center gap-2">
@@ -346,12 +443,43 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
         <p className="text-sm text-center">
           As chaves de criptografia foram geradas, aguardando a outra parte...
         </p>
-        
       </div>
     );
   }
 
-  if(currentConversaState?.conversa.statusChat === 'Blocked'){
+  if (currentConversaState?.conversa.statusChat === 'Pending' && currentConversaState?.conversa.accepted) {
+    return (
+      <div className="flex-1 flex flex-col items-center justify-center gap-6 text-gray-600 p-6">
+        <h2 className="text-2xl font-semibold text-center flex items-center justify-center gap-2">
+          <MdPersonAdd className="text-3xl text-blue-500" />
+          {selectedConversa.otherUserName} convidou você para conversar
+        </h2>
+
+        <p className="text-sm text-center text-gray-500 max-w-md">
+          Para iniciar o chat, você precisa aceitar o convite. As chaves de
+          criptografia serão compartilhadas automaticamente após a confirmação.
+        </p>
+
+        <div className="flex gap-4 mt-4">
+          <button
+            onClick={enviarConvite}
+            className="px-6 py-2 bg-blue-500 hover:bg-blue-600 text-white rounded-lg shadow-md transition"
+          >
+            Aceitar
+          </button>
+
+          <button
+            onClick={recusarConvite}
+            className="px-6 py-2 bg-gray-200 hover:bg-gray-300 text-gray-700 rounded-lg shadow-md transition"
+          >
+            Recusar
+          </button>
+        </div>
+      </div>
+    );
+  }
+
+  if (currentConversaState?.conversa.statusChat === 'Blocked') {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-8 bg-yellow-50 p-8 rounded-2xl">
         <div className="text-center">
@@ -412,9 +540,9 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
             disabled={sending}
             className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow duration-200 disabled:opacity-50"
           />
-          <Button 
+          <Button
             type="button"
-            onClick={handleSend} 
+            onClick={handleSend}
             disabled={sending || !newMessage.trim()}
             className="px-4 py-2"
           >

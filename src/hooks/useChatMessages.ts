@@ -1,12 +1,14 @@
 import { useState, useCallback, useEffect } from 'react';
 import { loadItem, saveItem } from '../utils/dbIndexedDB';
 import { encryptRSA, decryptRSA, importPublicKey } from '../utils/crypto/rsa';
+import { onReceiveMessage } from '../api/signalR';
 
 export interface Conversa {
   otherUserId: number;
   otherUserName: string;
   statusChat: 'Pending' | 'Active' | 'Blocked' | null;
   chatId: number;
+  accepted: boolean;
 }
 
 export interface Message {
@@ -33,7 +35,7 @@ export function useChatMessages(conversaId: number | null, myPrivateKey: CryptoK
     setLoading(true);
     try {
       const historico: Message[] = await loadItem("chatDB", "messages", `chat_${conversaId}`) || [];
-
+      
       setMessages(historico);
     } catch (error) {
       console.error('Erro ao carregar mensagens:', error);

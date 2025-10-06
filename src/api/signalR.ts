@@ -29,7 +29,8 @@ export function createConnection(userId: string) {
 }
 
 export async function startConnection(userId: string) {
-  if (connection && connection.state === signalR.HubConnectionState.Connected)
+  
+  if (connection && (connection.state === signalR.HubConnectionState.Connected || connection.state === signalR.HubConnectionState.Connecting))
     return connection;
 
   connection = createConnection(userId);
@@ -57,13 +58,15 @@ export function stopConnection() {
 export async function joinChat(userId: number, targetId: number, chatId?: number, accepted?: boolean) {
   if (!connection) throw new Error("Conexão não iniciada");
 
-  await connection.invoke(
+  
+  return await connection.invoke(
     "JoinChat",
     userId,
     targetId,
     chatId ?? 0,
     accepted ?? false
   );
+
 }
 
 export async function sendMessage(chatId: number, message: string) {
@@ -83,10 +86,29 @@ export async function registerPublicKey(publicKey: string, chatId: number) {
 export async function getPublicKeys(chatId: number) {
   if (!connection) throw new Error("Conexão não iniciada");
 
-  const keys = await connection.invoke<{ userId: number; publicKey: string }[]>(
+  const keys = await connection.invoke<{ userId: number; userPublicKey: string; otherUserId: number; otherUserPublicKey: string }>(
     "GetPublicKey",
     chatId
   );
 
   return keys;
+}
+
+export function onNotifyReceiver(callback: (creatorUserId: number, chatId: number) => void) {
+  console.log("registrando NotifyReceiver");
+  connection?.off("NotifyReceiver"); // remove qualquer handler antigo
+  connection?.on("NotifyReceiver", callback);
+}
+
+
+export function onNotifyRefused(callback: () => void) {
+  connection?.on("NotificationRefused", callback);
+}
+
+export function onNotificationAccepted(callback: () => void) {
+  connection?.on("NotificationAccepted", callback);
+}
+
+export function onReceiveMessage(callback: (senderUserId: string, message: string) => void) {
+  connection?.on("ReceiveMessage", callback);
 }

@@ -1,7 +1,7 @@
 import { createContext, useContext, useEffect, useState, type ReactNode } from "react";
 import { getProfile, login, logout } from "../services/authService";
 import * as authService from "../services/authService";
-import { startConnection, stopConnection } from "../api/signalR";
+import { stopConnection } from "../api/signalR";
 
 export type User = {
   id: number; 
@@ -49,10 +49,7 @@ export function AuthProvider({ children }: { children: ReactNode }) {
     if (!profile) {
       throw new Error("useAuth deve ser usado dentro de AuthProvider");
     }
-    
-    startConnection(profile.id.toString()).catch(err =>
-      console.error("Erro ao conectar SignalR", err)
-    );
+  
     
     setUser(profile);
   }

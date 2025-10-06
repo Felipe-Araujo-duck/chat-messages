@@ -1,9 +1,6 @@
-import { useEffect, useState } from "react";
 import { MdClose, MdMenu, MdLogout } from "react-icons/md";
 import type { Conversa } from "../../hooks/useChatMessages";
-import api from "../../api/api";
-import { getProfile } from "../../services/authService";
-import type { User } from "../../auth/authContext";
+import { useEffect } from "react";
 
 interface SidebarProps {
   conversas: Conversa[];
@@ -14,31 +11,19 @@ interface SidebarProps {
   onLogout: () => void;
 }
 
-const user: User | null = getProfile();
-
 export default function Sidebar({
-  conversas: initialConversas,
+  conversas,
   selectedConversa,
   onSelectConversa,
   isOpen,
   toggleSidebar,
   onLogout,
 }: SidebarProps) {
-  // Estado interno para guardar as conversas vindas da API
-  const [conversas, setConversas] = useState<Conversa[]>(initialConversas);
 
   useEffect(() => {
-    const fetchConversas = async () => {
-      try {
-        const response = await api.get<Conversa[]>(`/Auth/chat-users?id=${user?.id}`);
-        setConversas(response.data);
-      } catch (error) {
-        console.error("Erro ao buscar conversas:", error);
-      }
-    };
+    
+  })
 
-    fetchConversas();
-  }, []);
 
   return (
     <aside
@@ -62,7 +47,7 @@ export default function Sidebar({
             key={c.chatId || c.otherUserId}
             className={`
               flex items-center p-2 my-1 rounded-lg cursor-pointer
-              ${selectedConversa?.chatId === c.chatId ? "bg-primary text-white" : "bg-white"}
+              ${selectedConversa?.otherUserId === c.otherUserId ? "bg-primary text-white" : "bg-white"}
               hover:bg-primary/50 hover:text-white
               transition-colors
             `}
