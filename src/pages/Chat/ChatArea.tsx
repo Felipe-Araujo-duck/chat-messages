@@ -17,9 +17,9 @@ interface ChatAreaProps {
 
 export default function ChatArea({ userId, userName, selectedConversa }: ChatAreaProps) {
   const [conversa, setConversa] = useState<Conversa | null>(selectedConversa);
-  const [myPublicKey, setMyPublicKey] = useState<ArrayBuffer | null>(null);
+  //const [myPublicKey, setMyPublicKey] = useState<ArrayBuffer | null>(null);
   const [otherPublicKey, setOtherPublicKey] = useState<ArrayBuffer | null>(null);
-  const [myPrivateKey, setMyPrivateKey] = useState<CryptoKey | null>(null);
+  //const [myPrivateKey, setMyPrivateKey] = useState<CryptoKey | null>(null);
   const [newMessage, setNewMessage] = useState("");
   const [messages, setMessages] = useState<any[]>([]);
   const [sending, setSending] = useState(false);
@@ -106,9 +106,9 @@ export default function ChatArea({ userId, userName, selectedConversa }: ChatAre
     const keys = await getPublicKeys(chatId);
     const privateKey = await recuperarChavePrivada(chatId.toString(), "tokenFake");
 
-    setMyPublicKey(base64ToArrayBuffer(keys.userPublicKey));
+    //setMyPublicKey(base64ToArrayBuffer(keys.userPublicKey));
     setOtherPublicKey(base64ToArrayBuffer(keys.otherUserPublicKey));
-    setMyPrivateKey(privateKey);
+    //setMyPrivateKey(privateKey);
 
     return { ...keys, privateKey };
   }
@@ -152,8 +152,8 @@ export default function ChatArea({ userId, userName, selectedConversa }: ChatAre
     const publicKeyBase64 = btoa(String.fromCharCode(...new Uint8Array(publicKeyBuffer)));
     await registerPublicKey(publicKeyBase64, chatId);
 
-    setMyPublicKey(publicKeyBuffer);
-    setMyPrivateKey(keyPair.privateKey);
+    //setMyPublicKey(publicKeyBuffer);
+    //setMyPrivateKey(keyPair.privateKey);
   }
 
   // Convite
