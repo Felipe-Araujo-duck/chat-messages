@@ -69,6 +69,15 @@ export async function joinChat(userId: number, targetId: number, chatId?: number
 
 }
 
+export async function notifyUpdatedKeys(chatId: number) {
+  if (!connection) throw new Error("Conexão não iniciada");
+
+  return await connection.invoke(
+    "NotifyKeyUpdate",
+    chatId
+  );
+}
+
 export async function sendMessage(chatId: number, message: string) {
   if (!connection) throw new Error("Conexão não iniciada");
   if (connection.state !== signalR.HubConnectionState.Connected)
@@ -107,6 +116,10 @@ export function onNotifyRefused(callback: () => void) {
 
 export function onNotificationAccepted(callback: () => void) {
   connection?.on("NotificationAccepted", callback);
+}
+
+export function onNotifyUpdatedKeys(callback: () => void) {
+  connection?.on("NotificationUpdatedKeys", callback);
 }
 
 export function onReceiveMessage(callback: (senderUserId: string, message: string) => void) {

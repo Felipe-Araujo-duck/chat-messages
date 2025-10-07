@@ -2,10 +2,12 @@ import { MdBlock, MdHourglassEmpty, MdLock, MdPersonAdd, MdSend, MdWavingHand } 
 import Button from "../../components/Button/Button";
 import type { Conversa, Message } from "../../hooks/useChatMessages";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { getPublicKeys, joinChat, onNotificationAccepted, onNotifyRefused, onReceiveMessage, registerPublicKey, sendMessage } from "../../api/signalR";
+import { getPublicKeys, joinChat, notifyUpdatedKeys, onNotificationAccepted, onNotifyRefused, onNotifyUpdatedKeys, onReceiveMessage, registerPublicKey, sendMessage } from "../../api/signalR";
 
 import { decryptRSA, encryptRSA, exportPrivateKey, exportPublicKey, importPublicKey } from "../../utils/crypto/rsa";
 import api from "../../api/api";
+import { recuperarChavePrivada, salvarChavePrivada } from "../../utils/keysIndexedDB";
+import { loadItem } from "../../utils/dbIndexedDB";
 
 interface ChatAreaProps {
   userId?: number;
@@ -22,31 +24,34 @@ export default function ChatArea({ userId, userName, selectedConversa }: ChatAre
   const [myPrivateKey, setMyPrivateKey] = useState<CryptoKey | null>(null);
   const [newMessage, setNewMessage] = useState("")
   const [messages, setMessages] = useState<any[]>([]);
-  const messagesEndRef = useRef<HTMLDivElement>(null);
+  const [sending, setSending] = useState(false);
 
-  // Scroll para baixo
-  useEffect(() => {
-    messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
-  }, [messages]);
+ 
 
   const messageHandler = useCallback(async (senderUserId: string, message: string) => {
-    console.log(message)
+
+    //await getKeys(conversa?.chatId || 0);
+
     if (!myPrivateKey) {
       console.error("Private key não disponível");
-      return;
+      await getKeys(conversa?.chatId || 0);
+      
     }
 
-    try {
-      const decryptedArray = await decryptRSA(
-        myPrivateKey,
-        base64ToArrayBuffer(message)
-      );
-      const decryptedText = new TextDecoder().decode(decryptedArray);
+    if (myPrivateKey) {
+      try {
+        const decryptedArray = await decryptRSA(
+          myPrivateKey,
+          base64ToArrayBuffer(message)
+        );
+        const decryptedText = new TextDecoder().decode(decryptedArray);
 
-      setMessages(prev => [...prev, { id: Date.now(), sender: "user", text: decryptedText }]);
-    } catch (error) {
-      console.error(error);
+        setMessages(prev => [...prev, { id: Date.now(), sender: "other", text: decryptedText }]);
+      } catch (error) {
+        console.error(error);
+      }
     }
+    
   }, [myPrivateKey]);
 
   useEffect(() => {
@@ -78,39 +83,14 @@ export default function ChatArea({ userId, userName, selectedConversa }: ChatAre
       })
     };
 
-   /*  const messageHandler = async (senderUserId: string, message: string) => {
-      debugger
-      const decryptMessage = async (message: string): Promise<string> => {
-        if (!myPrivateKey) {
-          throw new Error("Chave privada não disponível para decifrar");
-        }
+    const updatedKeys = async () => {
+      await getKeys(conversa?.chatId || 0);
+    };
 
-        try {
-          const decrypted = await decryptRSA(
-            myPrivateKey,
-            base64ToArrayBuffer(message)
-          );
-          return new TextDecoder().decode(decrypted);
-        } catch (error) {
-          console.error("Erro ao decifrar mensagem:", error);
-          throw new Error("Falha ao decifrar mensagem");
-        }
-      };
-
-      
-      debugger
-      const menssage: any = {
-        id: Date.now(),
-        sender: "user",
-        text: decryptMessage(message)
-      }
-      setMessages((prev) => [...prev, menssage]);
-      
-    }; */
-
-    //onReceiveMessage(messageHandler);
+   
     onNotificationAccepted(acceptedHandler);
     onNotifyRefused(refusedHandler);
+    onNotifyUpdatedKeys(updatedKeys);
     
 
   });
@@ -130,6 +110,27 @@ export default function ChatArea({ userId, userName, selectedConversa }: ChatAre
       const keys = await getPublicKeys(chatId);
       setMyPublicKey(base64ToArrayBuffer(keys.userPublicKey));
       setOtherPublicKey(base64ToArrayBuffer(keys.otherUserPublicKey))
+
+      setMyPrivateKey(await recuperarChavePrivada(conversa?.chatId.toString() || '', "tokenFake"));
+
+      const existingKey = await loadItem("chatDB", "keys", `chat_key_${conversa?.chatId}`);
+
+      if(existingKey && existingKey.expiresAt < Date.now()){
+        console.log("chave expirou")
+        await geradorDeChaves(chatId);
+
+        if(conversa?.statusChat == 'Active'){
+          await notifyUpdatedKeys(chatId)
+        }
+
+        const refreshedKeys = await getPublicKeys(chatId);
+        setMyPublicKey(base64ToArrayBuffer(refreshedKeys.userPublicKey));
+        setOtherPublicKey(base64ToArrayBuffer(refreshedKeys.otherUserPublicKey));
+
+        setMyPrivateKey(await recuperarChavePrivada(conversa?.chatId.toString() || '', "tokenFake"));
+
+        return refreshedKeys;
+      }
 
       return keys;
     } catch (error) {
@@ -151,6 +152,24 @@ export default function ChatArea({ userId, userName, selectedConversa }: ChatAre
     return keyPair;
   }
 
+  async function geradorDeChaves(chatId: number) {
+    const keyPair = await gerarChaves();
+      const publicKeyBuffer = await exportPublicKey(keyPair.publicKey);
+      const privateKeyBuffer = await exportPrivateKey(keyPair.privateKey);
+
+      const expiresAt = Date.now() + 1000 * 60 * 5; // 2 minutos
+      await salvarChavePrivada(chatId.toString(), privateKeyBuffer, "tokenFake", expiresAt);
+
+      const publicKeyBase64 = btoa(
+        String.fromCharCode(...new Uint8Array(publicKeyBuffer))
+      );
+
+      await registerPublicKey(publicKeyBase64, chatId);
+
+      setMyPublicKey(publicKeyBuffer)
+      setMyPrivateKey(keyPair.privateKey)
+  }
+
   const enviarConvite = async () => {
 
     try{
@@ -164,18 +183,7 @@ export default function ChatArea({ userId, userName, selectedConversa }: ChatAre
         otherUserName: conversa?.otherUserName || ''
       })
 
-      const keyPair = await gerarChaves();
-      const publicKeyBuffer = await exportPublicKey(keyPair.publicKey);
-
-      const publicKeyBase64 = btoa(
-        String.fromCharCode(...new Uint8Array(publicKeyBuffer))
-      );
-
-      await registerPublicKey(publicKeyBase64, convite.id);
-
-      setMyPublicKey(publicKeyBuffer)
-      setMyPrivateKey(keyPair.privateKey)
-      console.log(myPrivateKey)
+      await geradorDeChaves(convite.id);
 
     } catch (error){
       console.log("Erro ao enviar convite")
@@ -207,9 +215,11 @@ export default function ChatArea({ userId, userName, selectedConversa }: ChatAre
 
   const handleSend = async () => {
 
-    await getKeys(conversa?.chatId || 0)
+    setSending(true);
+    try{
+      await getKeys(conversa?.chatId || 0)
 
-    if (!newMessage.trim() || !otherPublicKey || !myPublicKey) return;
+    if (!newMessage.trim() || !otherPublicKey || !myPublicKey || sending) return;
 
     const encryptMessage = async (
       text: string,
@@ -235,6 +245,13 @@ export default function ChatArea({ userId, userName, selectedConversa }: ChatAre
       text: newMessage
     }
     setMessages((prev) => [...prev, menssage]);
+    } catch(err) {
+      console.log("Erro ao enviar mensagem")
+    } finally{
+      setSending(false);
+      setNewMessage("");
+    }
+    
 
   }
 
@@ -344,17 +361,17 @@ export default function ChatArea({ userId, userName, selectedConversa }: ChatAre
         </div>
       </header>
 
-      <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-3 bg-gray-50">
-        {messages.length === 0 ? (
-          <div className="flex-1 flex items-center justify-center text-gray-400">
-            <p>Nenhuma mensagem ainda. Envie a primeira mensagem!</p>
+      <div className="flex-1 p-4 overflow-y-auto flex flex-col gap-2">
+        {messages.map(msg => (
+          <div
+            key={msg.id}
+            className={`p-3 rounded-lg max-w-xs shadow ${
+              msg.sender === "user" ? "bg-blue-500 text-white self-end" : "bg-white self-start"
+            }`}
+          >
+            {msg.text}
           </div>
-        ) : (
-          messages.map(msg => (
-            msg.text
-          ))
-        )}
-        <div ref={messagesEndRef} />
+        ))}
       </div>
 
       <div className="p-4 bg-white border-t border-gray-200">
@@ -365,18 +382,20 @@ export default function ChatArea({ userId, userName, selectedConversa }: ChatAre
             value={newMessage}
             onChange={(e) => setNewMessage(e.target.value)}
             onKeyDown={handleKeyPress}
+            disabled={sending}
             className="flex-1 border border-gray-300 rounded-lg px-3 py-2 focus:outline-none focus:ring-2 focus:ring-primary/30 transition-shadow duration-200 disabled:opacity-50"
           />
-          <Button
+          <Button 
             type="button"
-            onClick={handleSend}
+            onClick={handleSend} 
+            disabled={sending || !newMessage.trim()}
             className="px-4 py-2"
           >
-           {/*  {sending ? (
+            {sending ? (
               <div className="animate-spin rounded-full h-5 w-5 border-b-2 border-white"></div>
-            ) : ( */}
+            ) : (
               <MdSend size={20} />
-            {/* )} */}
+            )}
           </Button>
         </div>
       </div>
