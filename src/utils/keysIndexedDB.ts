@@ -18,9 +18,9 @@ export async function recuperarChavePrivada(conversaId: string, password: string
   const stored = await loadItem(DB_NAME, STORE_NAME, `chat_key_${conversaId}`);
   if (!stored) return null;
   
+  // Aqui só avisa que expirou, mas não remove
   if (Date.now() > stored.expiresAt) {
-    await removeItem(DB_NAME, STORE_NAME, `chat_key_${conversaId}`);
-    return null;
+    console.warn(`Chave da conversa ${conversaId} está expirada, mas ainda pode ser usada para decriptação.`);
   }
   
   try {
@@ -42,6 +42,8 @@ export async function recuperarChavePrivada(conversaId: string, password: string
     return null;
   }
 }
+
+
 
 export async function removerChavePrivada(conversaId: string) {
   await removeItem(DB_NAME, STORE_NAME, `chat_key_${conversaId}`);

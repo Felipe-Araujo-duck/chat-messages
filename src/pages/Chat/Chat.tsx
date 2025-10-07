@@ -3,7 +3,6 @@ import { useAuth } from "../../auth/authContext";
 import { useEffect, useState } from "react";
 import Sidebar from "./Sidebar";
 import ChatArea from "./ChatArea";
-import type { Conversa } from "../../hooks/useChatMessages";
 import api from "../../api/api";
 import { onNotificationAccepted, onNotifyReceiver } from "../../api/signalR";
 
@@ -13,6 +12,23 @@ type Notification = {
   chatId: number;
   timestamp: Date;
 };
+
+
+export interface Conversa {
+  otherUserId: number;
+  otherUserName: string;
+  statusChat: 'Pending' | 'Active' | 'Blocked' | null;
+  chatId: number;
+  accepted: boolean;
+}
+
+export interface Message {
+  id: number;
+  sender: "user" | "other";
+  encrypted: ArrayBuffer;
+  publicKey: ArrayBuffer; // Chave pública de quem enviou
+  timestamp: number;
+}
 
 export default function Chat() {
   const { user, logoutUser } = useAuth();

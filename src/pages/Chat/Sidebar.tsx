@@ -1,6 +1,6 @@
 import { MdClose, MdMenu, MdLogout } from "react-icons/md";
-import type { Conversa } from "../../hooks/useChatMessages";
 import { useEffect } from "react";
+import type { Conversa } from "./Chat";
 
 interface SidebarProps {
   conversas: Conversa[];

@@ -21,6 +21,11 @@ export function createConnection(userId: string) {
     console.log("[Sistema] Chat recusado pelo outro usuário.");
   });
 
+  connection.on("NotificationUpdatedKeys", () => {
+    console.log("[Sistema] chaves novas.");
+  });
+
+
   connection.on("ReceiveMessage", (senderUserId: string, message: string) => {
     console.log(`[Mensagem de ${senderUserId}] ${message}`);
   });
@@ -70,6 +75,7 @@ export async function joinChat(userId: number, targetId: number, chatId?: number
 }
 
 export async function notifyUpdatedKeys(chatId: number) {
+  console.log("Notificando chaves", chatId)
   if (!connection) throw new Error("Conexão não iniciada");
 
   return await connection.invoke(
@@ -79,6 +85,7 @@ export async function notifyUpdatedKeys(chatId: number) {
 }
 
 export async function sendMessage(chatId: number, message: string) {
+  console.log("Mensagem mandada para", chatId, message)
   if (!connection) throw new Error("Conexão não iniciada");
   if (connection.state !== signalR.HubConnectionState.Connected)
     throw new Error("Conexão com o servidor não está ativa!");
@@ -109,19 +116,22 @@ export function onNotifyReceiver(callback: (creatorUserId: number, chatId: numbe
   connection?.on("NotifyReceiver", callback);
 }
 
-
 export function onNotifyRefused(callback: () => void) {
+  connection?.off("NotificationRefused"); // remove qualquer handler antigo
   connection?.on("NotificationRefused", callback);
 }
 
 export function onNotificationAccepted(callback: () => void) {
+  connection?.off("NotificationAccepted"); // remove qualquer handler antigo
   connection?.on("NotificationAccepted", callback);
 }
 
 export function onNotifyUpdatedKeys(callback: () => void) {
+  connection?.off("NotificationUpdatedKeys"); // remove qualquer handler antigo
   connection?.on("NotificationUpdatedKeys", callback);
 }
 
 export function onReceiveMessage(callback: (senderUserId: string, message: string) => void) {
+  connection?.off("ReceiveMessage"); // Remove todos os handlers anteriores
   connection?.on("ReceiveMessage", callback);
 }
