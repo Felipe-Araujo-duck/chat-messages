@@ -3,7 +3,6 @@ import { useAuth } from "../../auth/authContext";
 import { useEffect, useState } from "react";
 import Sidebar from "./Sidebar";
 import ChatArea from "./ChatArea";
-import { loadItem, removeItem } from "../../utils/dbIndexedDB";
 import type { Conversa } from "../../hooks/useChatMessages";
 import api from "../../api/api";
 import { onNotificationAccepted, onNotifyReceiver } from "../../api/signalR";
@@ -21,7 +20,6 @@ export default function Chat() {
 
   const [conversas, setConversas] = useState<Conversa[]>([]);
   const [selectedConversa, setSelectedConversa] = useState<Conversa | null>(null);
-  const [expirou, setExpirou] = useState(false);
   const [isOpen, setIsOpen] = useState(false);
 
   const [notifications, setNotifications] = useState<Notification[]>([]);
@@ -46,12 +44,12 @@ export default function Chat() {
       fetchConversas();
     };
 
-   /*  const acceptedHandler = () => {
+    const acceptedHandler = () => {
       fetchConversas();
-    }; */
+    };
 
     onNotifyReceiver(handler);
-    //onNotificationAccepted(acceptedHandler);
+    onNotificationAccepted(acceptedHandler);
 
     
     fetchConversas();
@@ -60,29 +58,13 @@ export default function Chat() {
 
 
   const handleLogout = () => {
-    for (const conversa of conversas) {
-      removeItem("chatDB", "keys", `chat_key_${conversa.chatId}`);
-      removeItem("chatDB", "keys", `public_my_${conversa.chatId}`);
-      removeItem("chatDB", "keys", `public_other_${conversa.chatId}`);
-      removeItem("chatDB", "messages", `chat_${conversa.chatId}`);
-    }
+    
     logoutUser();
     navigate("/login");
   };
 
   const iniciarConversa = async (conversa: Conversa) => {
-    const existingKey = await loadItem("chatDB", "keys", `chat_key_${conversa.chatId}`);
-
-    if (!existingKey) {
-      setExpirou(false);
-    } else if (existingKey.expiresAt < Date.now()) {
-      setExpirou(true);
-      await removeItem("chatDB", "keys", `chat_key_${conversa.chatId}`);
-      await removeItem("chatDB", "keys", `public_my_${conversa.chatId}`);
-      await removeItem("chatDB", "keys", `public_other_${conversa.chatId}`);
-      await removeItem("chatDB", "messages", `chat_${conversa.chatId}`);
-    }
-
+    
     setSelectedConversa(conversa);
   };
 
@@ -131,7 +113,6 @@ export default function Chat() {
         userId={user?.id}
         userName={user?.name}
         selectedConversa={selectedConversa}
-        expirou={expirou}
       />
     </div>
   );
