@@ -2,8 +2,6 @@ import { useState, useEffect, useRef, useCallback } from "react";
 import { MdAlarm, MdBlock, MdHourglassEmpty, MdLock, MdPersonAdd, MdSend, MdWavingHand } from "react-icons/md";
 import Button from "../../components/Button/Button";
 import { useChatMessages, type Conversa } from "../../hooks/useChatMessages";
-import { gerarChaves } from "../../utils/keys";
-import { exportPublicKey } from "../../utils/crypto/rsa";
 import { useConversasState, type ConversaState } from "../../hooks/useConversasState";
 import { useExpiration } from "../../hooks/useExpiration";
 import { useChatKeys } from "../../hooks/userChatKeys";
@@ -26,7 +24,6 @@ function respostaAutomatica(text: string) {
   return respostas[Math.floor(Math.random() * respostas.length)];
 }
 
-// Componente para mensagem com decrypt assíncrono
 function DecryptingMessage({ message, decryptMessage }: {
   message: any;
   decryptMessage: (msg: any) => Promise<string>;
@@ -68,37 +65,39 @@ function DecryptingMessage({ message, decryptMessage }: {
   );
 }
 
+const toStatusChat = (status: string): 'Pending' | 'Active' | 'Blocked' | null => {
+  switch (status?.toLowerCase()) {
+    case 'pending': return 'Pending';
+    case 'active': return 'Active';
+    case 'blocked': return 'Blocked';
+    default: return null;
+  }
+};
+
 export default function ChatArea({ userId, userName, selectedConversa, expirou: expiradoProp }: ChatAreaProps) {
   const [newMessage, setNewMessage] = useState("");
   const [sending, setSending] = useState(false);
-  const [conversaId, updateConversaId] = useState<number>(0);
-
-  // Efeito para atualizar conversaId quando selectedConversa mudar
-  useEffect(() => {
-    if (selectedConversa?.chatId && selectedConversa.chatId !== conversaId) {
-      console.log('🔄 [ChatArea] Atualizando conversaId:', selectedConversa.chatId);
-      updateConversaId(selectedConversa.chatId);
-    }
-  }, [selectedConversa, conversaId]);
-
-  // Hook de expiração
+  
+  const conversaId = selectedConversa?.chatId || 0;
+  
   const {
     expirou,
     renovarExpiracao,
     forcarExpiração
   } = useExpiration(expiradoProp, Number(conversaId));
-
-  // Estado das conversas
+  
   const {
-    conversasState,
     initializeConversa,
     updateConversaState,
+    updateConversaStatus,
+    updateConversaComNovoId,
     getConversaState,
+    debugState,
   } = useConversasState();
-
+  
   const currentConversaState = getConversaState(conversaId || null);
-
-  // Chaves de criptografia
+  
+  
   const {
     myPrivateKey,
     myPublicKey,
@@ -106,12 +105,9 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
     loading: keysLoading,
     loadKeys,
     generateMyKeys,
-    setOtherUserPublicKey,
     clearKeys,
-    forceReload,
   } = useChatKeys(conversaId || null);
 
-  // Mensagens
   const {
     messages,
     loading: messagesLoading,
@@ -124,57 +120,43 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
 
   const messagesEndRef = useRef<HTMLDivElement>(null);
 
-  // Limpar estado quando a conversa mudar
+  useEffect(() => {
+    console.log('🔍 [ChatArea] selectedConversa:', {
+      id: selectedConversa?.chatId,
+      status: selectedConversa?.statusChat,
+      accepted: selectedConversa?.accepted,
+      otherUser: selectedConversa?.otherUserName
+    });
+  }, [selectedConversa]);
+
+  useEffect(() => {
+    console.log('🔍 [ChatArea] currentConversaState:', {
+      existe: !!currentConversaState,
+      status: currentConversaState?.conversa.statusChat,
+      accepted: currentConversaState?.conversa.accepted
+    });
+  }, [currentConversaState]);
+
   useEffect(() => {
     setNewMessage("");
     setSending(false);
   }, [conversaId]);
 
-  // Inicializar conversa quando selecionada
   useEffect(() => {
     if (selectedConversa && !currentConversaState) {
-      console.log('🔄 [ChatArea] Inicializando nova conversa:', selectedConversa.chatId);
+      console.log('🚀 [ChatArea] Inicializando nova conversa:', selectedConversa.chatId);
       initializeConversa(selectedConversa);
     }
   }, [selectedConversa, currentConversaState, initializeConversa]);
 
-  // Forçar expiração se veio da prop
   useEffect(() => {
     if (expiradoProp) {
-      console.log('⚠️ [ChatArea] Expiração forçada da prop');
       forcarExpiração();
     }
   }, [expiradoProp, forcarExpiração]);
 
-  // Atualizar estado da conversa quando chaves mudarem
   useEffect(() => {
-    if (!conversaId || !selectedConversa) return;
-
-    console.log('🔄 [ChatArea] Atualizando estado da conversa com chaves:', {
-      conversaId,
-      temMyPublicKey: !!myPublicKey,
-      temOtherPublicKey: !!otherPublicKey
-    });
-
-    const updates: Partial<any> = {
-      conversa: { ...selectedConversa },
-      myPublicKey,
-      otherPublicKey,
-    };
-
-    // Atualizar status baseado nas chaves
-    if (myPublicKey && otherPublicKey) {
-      updates.conversa.statusChat = 'Active';
-    } else if (myPublicKey && !otherPublicKey) {
-      updates.conversa.statusChat = 'Pending';
-    }
-
-    updateConversaState(conversaId, updates);
-  }, [conversaId, myPublicKey, otherPublicKey, selectedConversa, updateConversaState]);
-
-  // Carregar dados quando a conversa for selecionada
-  useEffect(() => {
-    if (!conversaId || expirou) return;
+    if (!conversaId || conversaId === 0 || expirou) return;
 
     console.log('🔄 [ChatArea] Carregando dados para conversa:', conversaId);
     
@@ -186,122 +168,165 @@ export default function ChatArea({ userId, userName, selectedConversa, expirou: 
     initializeChat();
   }, [conversaId, expirou, loadKeys, loadMessages]);
 
-  // Scroll para baixo
   useEffect(() => {
     messagesEndRef.current?.scrollIntoView({ behavior: "smooth" });
   }, [messages]);
 
-  // Handlers de WebSocket
-  // No seu ChatArea, substitua o useEffect problemático por este:
-useEffect(() => {
-  if (!conversaId || !selectedConversa) return;
+  useEffect(() => {
+    const base64ToArrayBuffer = (base64: string): ArrayBuffer => {
+      try {
+        const binaryString = atob(base64);
+        const len = binaryString.length;
+        const bytes = new Uint8Array(len);
+        for (let i = 0; i < len; i++) {
+          bytes[i] = binaryString.charCodeAt(i);
+        }
+        return bytes.buffer;
+      } catch (error) {
+        console.error('❌ Erro na conversão base64:', error);
+        throw error;
+      }
+    };
 
-  console.log('🔄 [ChatArea] Atualizando estado da conversa com chaves:', {
-    conversaId,
-    temMyPublicKey: !!myPublicKey,
-    temOtherPublicKey: !!otherPublicKey
-  });
+    const refusedHandler = () => {
+      console.log('❌ [ChatArea] Convite recusado via WebSocket');
+      if (selectedConversa) {
+        updateConversaStatus(selectedConversa.chatId, 'Blocked', false);
+      }
+    };
 
-  // Determinar o status baseado nas chaves
-  let novoStatus: 'Pending' | 'Active' | 'Blocked' | null = selectedConversa.statusChat;
-  
-  if (myPublicKey && otherPublicKey) {
-    novoStatus = 'Active';
-  } else if (myPublicKey && !otherPublicKey) {
-    novoStatus = 'Pending';
-  }
+    const acceptedHandler = () => {
+      debugger
+      console.log('✅ [ChatArea] Convite aceito via WebSocket');
+      
+      if (currentConversaState) {
+        updateConversaStatus(currentConversaState.conversa.chatId, 'Active', true);
+      }
+    };
 
-  const conversaAtualizada: Conversa = {
-    ...selectedConversa,
-    statusChat: novoStatus
-  };
+    const messageHandler = async (senderUserId: string, message: string) => {
+      console.log('📨 [ChatArea] Nova mensagem recebida');
+      if (otherPublicKey) {
+        await addMessage({
+          sender: "other",
+          encrypted: base64ToArrayBuffer(message),
+          publicKey: otherPublicKey,
+        });
+      }
+    };
 
-  const updates: Partial<ConversaState> = {
-    conversa: conversaAtualizada,
-    myPublicKey,
-    otherPublicKey,
-  };
+    onReceiveMessage(messageHandler);
+    onNotifyRefused(refusedHandler);
+    onNotificationAccepted(acceptedHandler);
 
-  updateConversaState(conversaId, updates);
-}, [conversaId, myPublicKey, otherPublicKey, selectedConversa, updateConversaState]);
+    return () => {
+      onReceiveMessage(() => {});
+      onNotifyRefused(() => {});
+      onNotificationAccepted(() => {});
+    };
+  }, [selectedConversa, otherPublicKey, addMessage, updateConversaStatus]);
 
-  // Recusar convite
   const recusarConvite = async () => {
+    if (!selectedConversa || !userId) return;
+    
     try {
       console.log('❌ [ChatArea] Recusando convite');
-      const convite = await joinChat(userId!, selectedConversa?.otherUserId ?? 0, selectedConversa?.chatId, false);
       
-      if (selectedConversa) {
-        const conversaAtualizada = {
-          ...selectedConversa,
-          statusChat: convite.status,
-          chatId: convite.id,
-        };
-        
-        // Atualizar na ordem correta
-        updateConversaId(conversaAtualizada.chatId);
-        // Aguardar um ciclo de renderização
-        setTimeout(() => {
-          updateConversaState(conversaAtualizada.chatId, { conversa: conversaAtualizada });
-        }, 0);
+      const convite = await joinChat(userId, selectedConversa.otherUserId, selectedConversa.chatId, false);
+      
+      console.log('✅ [ChatArea] Convite recusado:', convite);
+
+      const chatIdReal = convite.id;
+      const statusReal = toStatusChat(convite.status);
+
+      const conversaAtualizada: Conversa = {
+        ...selectedConversa,
+        chatId: chatIdReal,
+        statusChat: statusReal,
+        accepted: false
+      };
+
+      if (chatIdReal !== selectedConversa.chatId) {
+        updateConversaComNovoId(selectedConversa.chatId, chatIdReal, conversaAtualizada);
+      } else {
+        updateConversaState(chatIdReal, { 
+          conversa: conversaAtualizada,
+          myPublicKey: null,
+          otherPublicKey: null
+        });
       }
+
     } catch (error) {
       console.error('Erro ao recusar convite:', error);
     }
   };
 
-  // Enviar ou reenviar convite
   const enviarConvite = async () => {
+    if (!selectedConversa || !userId) return;
+
     try {
       console.log('✅ [ChatArea] Enviando convite');
-      const convite = await joinChat(userId!, selectedConversa?.otherUserId ?? 0, selectedConversa?.chatId, true);
+      
+      const isAceitandoConvite = selectedConversa.statusChat === 'Pending' && selectedConversa.accepted;
+      
+      const convite = await joinChat(userId, selectedConversa.otherUserId, selectedConversa.chatId, true);
 
-      if (selectedConversa) {
-        const conversaAtualizada = {
-          ...selectedConversa,
-          statusChat: convite.status,
-          chatId: convite.id,
-        };
+      console.log('✅ [ChatArea] Resposta do servidor:', convite);
 
-        console.log('🔄 [ChatArea] Atualizando estado com novo chatId:', conversaAtualizada.chatId);
-        
-        // 1. Atualizar conversaId primeiro
-        updateConversaId(conversaAtualizada.chatId);
-        
-        // 2. Aguardar próximo ciclo de renderização
-        setTimeout(async () => {
-          // 3. Atualizar estado da conversa
-          updateConversaState(conversaAtualizada.chatId, { conversa: conversaAtualizada });
+      const chatIdReal = convite.id;
+      const statusReal = toStatusChat(convite.status);
 
-          // 4. Se está expirado, limpar estado primeiro
-          if (expirou) {
-            console.log('🗑️ [ChatArea] Limpando estado expirado');
-            clearKeys();
-            clearMessages();
-            await new Promise(resolve => setTimeout(resolve, 100));
-          }
+      console.log('🎯 [ChatArea] Dados reais do servidor:', {
+        chatIdReal,
+        statusReal,
+        chatIdAnterior: selectedConversa.chatId
+      });
 
-          // 5. Renovar expiração
-          renovarExpiracao(2);
+      const conversaAtualizada: Conversa = {
+        ...selectedConversa,
+        chatId: chatIdReal,
+        statusChat: statusReal,
+        accepted: isAceitandoConvite ? true : selectedConversa.accepted
+      };
 
-          // 6. Gerar novas chaves
-          console.log('🔑 [ChatArea] Gerando chaves para:', conversaAtualizada.chatId);
-          await generateMyKeys(conversaAtualizada.chatId);
-        }, 0);
+
+      updateConversaState(chatIdReal, { 
+          conversa: conversaAtualizada,
+          myPublicKey: null,
+          otherPublicKey: null
+        });
+
+      if (expirou) {
+        clearKeys();
+        clearMessages();
+        await new Promise(resolve => setTimeout(resolve, 100));
       }
 
+      renovarExpiracao(2);
+
+      if (!isAceitandoConvite) {
+        console.log('🔑 [ChatArea] Gerando chaves para:', chatIdReal);
+        await generateMyKeys(chatIdReal);
+      }
+
+      console.log("ConversaAtaulizada",conversaAtualizada)
+      let teste = conversaAtualizada;
+      console.log(teste)
+      
+      setTimeout(() => {
+        debugState?.();
+      }, 500);
+
     } catch (error) {
-      console.error('Erro ao enviar convite:', error);
+      console.error('❌ [ChatArea] Erro ao enviar convite:', error);
     }
   };
 
-  // Enviar mensagem
   const handleSend = async () => {
     if (!newMessage.trim() || !otherPublicKey || !myPublicKey || sending || expirou) return;
 
     setSending(true);
     try {
-      // Renovar expiração
       renovarExpiracao(2);
       
       const encryptedForOther = await encryptMessage(newMessage, otherPublicKey);
@@ -321,7 +346,6 @@ useEffect(() => {
 
       setNewMessage("");
 
-      // Resposta automática
       setTimeout(async () => {
         try {
           renovarExpiracao(2);
@@ -352,16 +376,24 @@ useEffect(() => {
     }
   };
 
-  // Debug do estado atual
   useEffect(() => {
-    console.log('🔍 [ChatArea] Estado atual:', {
+    console.log('🔍 [ChatArea] RESUMO DO ESTADO:', {
       conversaId,
-      selectedConversaId: selectedConversa?.chatId,
-      currentConversaState: !!currentConversaState,
+      selectedConversa: selectedConversa ? {
+        id: selectedConversa.chatId,
+        status: selectedConversa.statusChat,
+        accepted: selectedConversa.accepted,
+      } : 'Nulo',
+      currentConversaState: currentConversaState ? {
+        id: currentConversaState.conversa.chatId,
+        status: currentConversaState.conversa.statusChat,
+        accepted: currentConversaState.conversa.accepted
+      } : 'Nulo',
       expirou,
-      myPublicKey: !!myPublicKey,
-      otherPublicKey: !!otherPublicKey,
-      messagesCount: messages.length
+      keys: {
+        myPublicKey: !!myPublicKey,
+        otherPublicKey: !!otherPublicKey
+      }
     });
   }, [conversaId, selectedConversa, currentConversaState, expirou, myPublicKey, otherPublicKey, messages]);
 
@@ -416,7 +448,11 @@ useEffect(() => {
     );
   }
 
-  if (!currentConversaState?.myPublicKey && !selectedConversa.statusChat) {
+  const currentStatus = currentConversaState?.conversa.statusChat;
+  const currentAccepted = currentConversaState?.conversa.accepted;
+  const hasMyPublicKey = !!currentConversaState?.myPublicKey;
+
+  if (!hasMyPublicKey && !currentStatus) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-500 p-4">
         <h2 className="text-2xl font-semibold text-center">
@@ -433,7 +469,7 @@ useEffect(() => {
     );
   }
 
-  if (currentConversaState?.conversa.statusChat === 'Pending' && !currentConversaState?.conversa.accepted) {
+  if (currentStatus === 'Pending' && !currentAccepted) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-4 text-gray-500 p-4">
         <h2 className="text-2xl font-semibold text-center flex items-center justify-center gap-2">
@@ -447,7 +483,7 @@ useEffect(() => {
     );
   }
 
-  if (currentConversaState?.conversa.statusChat === 'Pending' && currentConversaState?.conversa.accepted) {
+  if (currentStatus === 'Pending' && currentAccepted) {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-6 text-gray-600 p-6">
         <h2 className="text-2xl font-semibold text-center flex items-center justify-center gap-2">
@@ -479,7 +515,7 @@ useEffect(() => {
     );
   }
 
-  if (currentConversaState?.conversa.statusChat === 'Blocked') {
+  if (currentStatus === 'Blocked') {
     return (
       <div className="flex-1 flex flex-col items-center justify-center gap-8 bg-yellow-50 p-8 rounded-2xl">
         <div className="text-center">
@@ -506,8 +542,10 @@ useEffect(() => {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <span className="text-sm bg-green-500 px-2 py-1 rounded">
-            Seguro
+          <span className={`text-sm px-2 py-1 rounded ${
+            currentStatus === 'Active' ? 'bg-green-500' : 'bg-blue-500'
+          }`}>
+            {currentStatus === 'Active' ? 'Ativo' : 'Seguro'}
           </span>
         </div>
       </header>

@@ -14,7 +14,6 @@ export function useConversasState() {
     console.log('🔄 [initializeConversa] Inicializando conversa:', conversa.chatId);
     
     setConversasState(prev => {
-      // Se já existe, não sobrescrever
       if (prev[conversa.chatId]) {
         console.log('ℹ️ [initializeConversa] Conversa já existe, mantendo estado atual');
         return prev;
@@ -23,7 +22,7 @@ export function useConversasState() {
       const newState = {
         ...prev,
         [conversa.chatId]: {
-          conversa: { ...conversa }, // Criar nova referência
+          conversa: { ...conversa },
           myPublicKey: null,
           otherPublicKey: null,
         }
@@ -48,7 +47,6 @@ export function useConversasState() {
     setConversasState(prev => {
       const currentState = prev[conversaId];
       
-      // Se não existe, criar nova entrada
       if (!currentState) {
         console.log('⚠️ [updateConversaState] Conversa não encontrada, criando nova...');
         const newState = {
@@ -69,11 +67,9 @@ export function useConversasState() {
         return newState;
       }
 
-      // Se existe, atualizar
       const updatedState = {
         ...currentState,
         ...updates,
-        // Garantir que a conversa mantenha o chatId correto
         conversa: updates.conversa ? { 
           ...updates.conversa, 
           chatId: conversaId 
@@ -88,49 +84,33 @@ export function useConversasState() {
       console.log('✅ [updateConversaState] Estado atualizado:', {
         conversaId,
         estadoAnterior: currentState,
-        estadoNovo: updatedState,
-        todasConversas: Object.keys(newState)
+        estadoNovo: updatedState
       });
       
       return newState;
     });
   }, []);
 
-  const getConversaState = useCallback((conversaId: number | null): ConversaState | null => {
+  const updateConversaStatus = useCallback((conversaId: number, status: 'Pending' | 'Active' | 'Blocked' | null, accepted?: boolean) => {
     if (!conversaId || conversaId === 0) {
-      console.log('⚠️ [getConversaState] conversaId inválido:', conversaId);
-      return null;
-    }
-    
-    const state = conversasState[conversaId] || null;
-    console.log('🔍 [getConversaState] Buscando estado:', { 
-      conversaId, 
-      encontrado: !!state,
-      estado: state 
-    });
-    return state;
-  }, [conversasState]);
-
-  // Função para atualizar apenas a conversa
-  const updateConversaOnly = useCallback((conversaId: number, conversaUpdates: Partial<Conversa>) => {
-    if (!conversaId || conversaId === 0) {
-      console.log('⚠️ [updateConversaOnly] conversaId inválido:', conversaId);
+      console.log('⚠️ [updateConversaStatus] conversaId inválido:', conversaId);
       return;
     }
 
-    console.log('🔄 [updateConversaOnly] Atualizando apenas conversa:', conversaId, conversaUpdates);
+    console.log('🔄 [updateConversaStatus] Atualizando status:', { conversaId, status, accepted });
     
     setConversasState(prev => {
       const currentState = prev[conversaId];
+      
       if (!currentState) {
-        console.log('❌ [updateConversaOnly] Conversa não encontrada:', conversaId);
+        console.log('❌ [updateConversaStatus] Conversa não encontrada:', conversaId);
         return prev;
       }
 
       const updatedConversa = {
         ...currentState.conversa,
-        ...conversaUpdates,
-        chatId: conversaId // Garantir que o chatId não seja alterado
+        statusChat: status,
+        ...(accepted !== undefined && { accepted })
       };
 
       const newState = {
@@ -141,31 +121,88 @@ export function useConversasState() {
         }
       };
 
-      console.log('✅ [updateConversaOnly] Conversa atualizada:', updatedConversa);
+      console.log('✅ [updateConversaStatus] Status atualizado:', updatedConversa);
       return newState;
     });
   }, []);
 
-  // Função para atualizar apenas as chaves
-  const updateConversaKeys = useCallback((conversaId: number, keys: { myPublicKey?: ArrayBuffer | null; otherPublicKey?: ArrayBuffer | null }) => {
-    if (!conversaId || conversaId === 0) {
-      console.log('⚠️ [updateConversaKeys] conversaId inválido:', conversaId);
+  const updateConversaComNovoId = useCallback((antigoChatId: number, novoChatId: number, conversaAtualizada: Conversa) => {
+    if (!antigoChatId || !novoChatId) {
+      console.log('⚠️ [updateConversaComNovoId] IDs inválidos:', { antigoChatId, novoChatId });
       return;
     }
 
-    console.log('🔄 [updateConversaKeys] Atualizando chaves:', conversaId, {
-      myPublicKey: keys.myPublicKey ? `✅ ${keys.myPublicKey.byteLength} bytes` : '❌ Nulo',
-      otherPublicKey: keys.otherPublicKey ? `✅ ${keys.otherPublicKey.byteLength} bytes` : '❌ Nulo'
+    console.log('🔄 [updateConversaComNovoId] Atualizando ID da conversa:', {
+      de: antigoChatId,
+      para: novoChatId
     });
     
     setConversasState(prev => {
-      const currentState = prev[conversaId];
+      const currentState = prev[antigoChatId];
+      
       if (!currentState) {
-        console.log('❌ [updateConversaKeys] Conversa não encontrada:', conversaId);
+        console.log('❌ [updateConversaComNovoId] Conversa antiga não encontrada:', antigoChatId);
         return prev;
       }
 
-      const newState = {
+      const newState = { ...prev };
+      delete newState[antigoChatId];
+      
+      newState[novoChatId] = {
+        ...currentState,
+        conversa: conversaAtualizada
+      };
+
+      console.log('✅ [updateConversaComNovoId] Conversa movida para novo ID:', {
+        antigoChatId,
+        novoChatId,
+        conversa: conversaAtualizada
+      });
+
+      return newState;
+    });
+  }, []);
+
+  const getConversaState = useCallback((conversaId: number | null): ConversaState | null => {
+    if (!conversaId || conversaId === 0) {
+      return null;
+    }
+    
+    const state = conversasState[conversaId] || null;
+    return state;
+  }, [conversasState]);
+
+  const updateConversaOnly = useCallback((conversaId: number, conversaUpdates: Partial<Conversa>) => {
+    if (!conversaId || conversaId === 0) return;
+
+    setConversasState(prev => {
+      const currentState = prev[conversaId];
+      if (!currentState) return prev;
+
+      const updatedConversa = {
+        ...currentState.conversa,
+        ...conversaUpdates,
+        chatId: conversaId
+      };
+
+      return {
+        ...prev,
+        [conversaId]: {
+          ...currentState,
+          conversa: updatedConversa
+        }
+      };
+    });
+  }, []);
+
+  const updateConversaKeys = useCallback((conversaId: number, keys: { myPublicKey?: ArrayBuffer | null; otherPublicKey?: ArrayBuffer | null }) => {
+    if (!conversaId || conversaId === 0) return;
+    
+    setConversasState(prev => {
+      const currentState = prev[conversaId];
+      if (!currentState) return prev;
+
+      return {
         ...prev,
         [conversaId]: {
           ...currentState,
@@ -173,31 +210,19 @@ export function useConversasState() {
           otherPublicKey: keys.otherPublicKey !== undefined ? keys.otherPublicKey : currentState.otherPublicKey
         }
       };
-
-      console.log('✅ [updateConversaKeys] Chaves atualizadas');
-      return newState;
     });
   }, []);
 
-  // Função para remover conversa
   const removeConversa = useCallback((conversaId: number) => {
-    if (!conversaId || conversaId === 0) {
-      console.log('⚠️ [removeConversa] conversaId inválido:', conversaId);
-      return;
-    }
-
-    console.log('🗑️ [removeConversa] Removendo conversa:', conversaId);
+    if (!conversaId || conversaId === 0) return;
     
     setConversasState(prev => {
       const newState = { ...prev };
       delete newState[conversaId];
-      
-      console.log('✅ [removeConversa] Conversa removida. Total:', Object.keys(newState).length);
       return newState;
     });
   }, []);
 
-  // Função para debug do estado atual
   const debugState = useCallback(() => {
     console.log('📊 [debugState] Estado completo das conversas:', {
       totalConversas: Object.keys(conversasState).length,
@@ -205,18 +230,17 @@ export function useConversasState() {
         id,
         otherUserName: state.conversa.otherUserName,
         status: state.conversa.statusChat,
+        accepted: state.conversa.accepted,
         myPublicKey: state.myPublicKey ? '✅' : '❌',
         otherPublicKey: state.otherPublicKey ? '✅' : '❌'
       }))
     });
   }, [conversasState]);
 
-  // Função para obter todas as conversas
   const getAllConversas = useCallback((): ConversaState[] => {
     return Object.values(conversasState);
   }, [conversasState]);
 
-  // Função para verificar se conversa existe
   const hasConversa = useCallback((conversaId: number): boolean => {
     return !!conversasState[conversaId];
   }, [conversasState]);
@@ -225,6 +249,8 @@ export function useConversasState() {
     conversasState,
     initializeConversa,
     updateConversaState,
+    updateConversaStatus,
+    updateConversaComNovoId,
     updateConversaOnly,
     updateConversaKeys,
     removeConversa,
